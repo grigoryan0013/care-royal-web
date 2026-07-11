@@ -261,5 +261,27 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     if (body.action === "note") { await update("leads", body.leadId, { notes: body.notes || "" }); return ok(); }
   }
 
+  // ---- messaging (per-household thread; agency = customer service sees all)
+  if (p === "/api/threads" && method === "GET") {
+    const [households, bookings, messages] = await Promise.all([readCol("households", T), readCol("bookings", T), readCol("messages", T)]);
+    let hids: string[];
+    if (m.role === "family") hids = households.filter((h) => h.primaryUserId === m.uid).map((h) => h.householdId);
+    else if (m.role === "caregiver") hids = Array.from(new Set(bookings.filter((b) => b.caregiverId === m.uid).map((b) => b.householdId)));
+    else hids = households.map((h) => h.householdId);
+    const last: Row = {};
+    for (const msg of messages) { const c = last[msg.householdId]; if (!c || msg.createdAt > c.createdAt) last[msg.householdId] = msg; }
+    const threads = hids.map((hid) => ({ householdId: hid, name: byId(households, "householdId", hid)?.name || "Client", lastText: last[hid]?.text || "", lastAt: last[hid]?.createdAt || "" })).sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
+    return { threads };
+  }
+  if (p === "/api/messages" && method === "GET") {
+    const hid = qs.get("householdId") || "";
+    const msgs = (await readCol("messages", T)).filter((x) => x.householdId === hid).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+    return { messages: msgs };
+  }
+  if (p === "/api/messages" && method === "POST") {
+    await create("messages", "messageId", { tenantId: T, householdId: body.householdId, fromUid: m.uid, fromName: m.name, fromRole: m.role, text: body.text || "", createdAt: now() });
+    return ok();
+  }
+
   return { error: `fb: unhandled ${method} ${p}` };
 }

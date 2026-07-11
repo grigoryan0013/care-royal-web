@@ -54,7 +54,7 @@ type Row = Record<string, string>;
 interface Db {
   Users: Row[]; Households: Row[]; Recipients: Row[]; Services: Row[];
   CaregiverProfiles: Row[]; Bookings: Row[]; Shifts: Row[]; Invoices: Row[];
-  Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Tenant: Row;
+  Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Messages: Row[]; Tenant: Row;
 }
 
 function seedIfEmpty() {
@@ -118,6 +118,11 @@ export function resetDemo() {
     ],
     Leads: seedLeads(),
     Waitlist: [],
+    Messages: [
+      { messageId: "msg1", tenantId: IDS.tenant, householdId: "hh1", fromUid: IDS.family, fromName: "Jordan Miller", fromRole: "family", text: "Hi, could Ana arrive a little earlier on Friday?", createdAt: agoHours(20) },
+      { messageId: "msg2", tenantId: IDS.tenant, householdId: "hh1", fromUid: IDS.admin, fromName: "Care team", fromRole: "agency_admin", text: "Of course — we'll confirm with Ana and update the schedule.", createdAt: agoHours(19) },
+      { messageId: "msg3", tenantId: IDS.tenant, householdId: "hh1", fromUid: IDS.cg, fromName: "Ana Reyes", fromRole: "caregiver", text: "Happy to come at 9am instead. See you Friday!", createdAt: agoHours(18) },
+    ],
   };
   localStorage.setItem(DB, JSON.stringify(db));
 }
@@ -291,6 +296,26 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     if (body.action === "import") { const rows = (body.leads as Row[]) || []; for (const r of rows) db.Leads.push({ leadId: id("lead"), tenantId: IDS.tenant, name: r.name || "", email: r.email || "", phone: r.phone || "", address: r.address || "", city: r.city || "", zip: r.zip || "", stage: "new", source: "import", notes: "", createdAt: now() }); write(db); return { ok: true, imported: rows.length }; }
     if (body.action === "update_stage") { const l = db.Leads.find((x) => x.leadId === body.leadId); if (l) l.stage = String(body.stage); write(db); return ok(); }
     if (body.action === "note") { const l = db.Leads.find((x) => x.leadId === body.leadId); if (l) l.notes = String(body.notes || ""); write(db); return ok(); }
+  }
+
+  // ---- messaging
+  if (p === "/api/threads" && method === "GET") {
+    let hids: string[];
+    if (me.role === "family") hids = db.Households.filter((h) => h.primaryUserId === me.userId).map((h) => h.householdId);
+    else if (me.role === "caregiver") hids = Array.from(new Set(db.Bookings.filter((b) => b.caregiverId === me.userId).map((b) => b.householdId)));
+    else hids = db.Households.map((h) => h.householdId);
+    const last: Record<string, Row> = {};
+    for (const msg of db.Messages) { const c = last[msg.householdId]; if (!c || msg.createdAt > c.createdAt) last[msg.householdId] = msg; }
+    const threads = hids.map((hid) => ({ householdId: hid, name: hhById(hid)?.name || "Client", lastText: last[hid]?.text || "", lastAt: last[hid]?.createdAt || "" })).sort((a, b) => ((a as any).lastAt < (b as any).lastAt ? 1 : -1));
+    return { threads };
+  }
+  if (p === "/api/messages" && method === "GET") {
+    const hid = qs.get("householdId") || "";
+    return { messages: db.Messages.filter((x) => x.householdId === hid).sort((a, b) => ((a as any).createdAt < (b as any).createdAt ? -1 : 1)) };
+  }
+  if (p === "/api/messages" && method === "POST") {
+    db.Messages.push({ messageId: id("msg"), tenantId: IDS.tenant, householdId: String(body.householdId), fromUid: me.userId, fromName: me.name, fromRole: me.role, text: String(body.text || ""), createdAt: now() });
+    write(db); return ok();
   }
 
   // ---- waitlist (public)

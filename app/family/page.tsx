@@ -2,12 +2,16 @@
 import { useCallback, useEffect, useState } from "react";
 import PortalShell, { type NavItem } from "../../components/PortalShell";
 import DocumentsPanel from "../../components/DocumentsPanel";
+import CalendarView from "../../components/CalendarView";
+import MessagesPanel from "../../components/MessagesPanel";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "home", label: "Home" },
   { key: "household", label: "Household" },
   { key: "bookings", label: "Bookings" },
+  { key: "calendar", label: "Calendar" },
+  { key: "messages", label: "Messages" },
   { key: "payments", label: "Payments" },
   { key: "documents", label: "Documents" },
 ];
@@ -63,6 +67,8 @@ export default function FamilyPortal() {
       {active === "bookings" && (
         <BookingsView recipients={recipients} services={services} bookings={bookings} onChange={() => { load(); flash("Booking requested. Your agency will review it."); }} />
       )}
+      {active === "calendar" && <CalendarView events={bookings.map((b) => ({ date: b.start, label: b.serviceName, sub: b.recipientName, tone: b.status === "completed" ? "ok" : b.status === "declined" ? "danger" : b.status === "requested" ? "gold" : "brand" }))} />}
+      {active === "messages" && <MessagesPanel />}
       {active === "payments" && <Payments />}
       {active === "documents" && <DocumentsPanel />}
     </PortalShell>

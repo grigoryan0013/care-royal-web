@@ -2,11 +2,15 @@
 import { useCallback, useEffect, useState } from "react";
 import PortalShell, { type NavItem } from "../../components/PortalShell";
 import DocumentsPanel from "../../components/DocumentsPanel";
+import CalendarView from "../../components/CalendarView";
+import MessagesPanel from "../../components/MessagesPanel";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "schedule", label: "My schedule" },
+  { key: "calendar", label: "Calendar" },
   { key: "available", label: "Open shifts" },
+  { key: "messages", label: "Messages" },
   { key: "pay", label: "My pay" },
   { key: "documents", label: "Documents" },
 ];
@@ -76,6 +80,8 @@ export default function CaregiverPortal() {
         </div>
       )}
 
+      {active === "calendar" && <CalendarView events={shifts.map((s) => ({ date: s.start, label: s.serviceName, sub: s.recipientName, tone: s.status === "completed" ? "ok" : s.status === "in_progress" ? "gold" : "brand" }))} />}
+      {active === "messages" && <MessagesPanel />}
       {active === "pay" && <MyPay />}
       {active === "documents" && <DocumentsPanel />}
     </PortalShell>

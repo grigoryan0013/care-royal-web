@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import PortalShell, { type NavItem } from "../../components/PortalShell";
+import CalendarView from "../../components/CalendarView";
+import MessagesPanel from "../../components/MessagesPanel";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
@@ -10,6 +12,8 @@ const nav: NavItem[] = [
   { key: "staff", label: "Staff" },
   { key: "services", label: "Services" },
   { key: "schedule", label: "Schedule" },
+  { key: "calendar", label: "Calendar" },
+  { key: "messages", label: "Messages" },
   { key: "money", label: "Money" },
   { key: "documents", label: "Documents" },
   { key: "leads", label: "Leads" },
@@ -74,6 +78,8 @@ export default function AgencyPortal() {
       {active === "staff" && <Staff caregivers={caregivers} />}
       {active === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
       {active === "schedule" && <Schedule shifts={shifts} />}
+      {active === "calendar" && <CalendarView events={shifts.map((s) => ({ date: s.start, label: s.serviceName, sub: s.caregiverName || "Unassigned", tone: s.status === "completed" ? "ok" : s.status === "in_progress" ? "gold" : "brand" }))} />}
+      {active === "messages" && <MessagesPanel />}
       {active === "money" && <Money />}
       {active === "documents" && <AgencyDocs clients={clients} onChange={() => flash("Document sent.")} />}
       {active === "leads" && <Leads />}

@@ -91,5 +91,13 @@ service cloud.firestore {
       allow create: if isAgency() && sameTenantW();
       allow update: if sameTenantR();
     }
+
+    // ---- messages: tenant members converse; agency (customer service) sees all.
+    // (Intra-tenant thread privacy is tightened in the membership/assignment batch.)
+    match /messages/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW() && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }
