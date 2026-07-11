@@ -1,4 +1,8 @@
-// Client-side session + API helpers. Token/user live in localStorage.
+// Session + API helpers. Real mode = Firebase Auth + Firestore (client-side).
+// Demo mode (grigoryan/201816) = in-browser mock, still available for testing.
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebase";
+import { fbHandle, clearProfileCache } from "./fb";
 import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle } from "./demo";
 
 export type Role = "agency_admin" | "agency_coord" | "caregiver" | "family";
@@ -10,88 +14,62 @@ export interface SessionUser {
   name: string;
 }
 
-const TOKEN_KEY = "cr_token";
-const USER_KEY = "cr_user";
-
-export function saveSession(token: string, user: SessionUser) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
-}
-export function clearSession() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
-}
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
-}
-export function getUser(): SessionUser | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(USER_KEY);
-  return raw ? (JSON.parse(raw) as SessionUser) : null;
+// Resolve once when Firebase Auth has restored any persisted session.
+let _authReady: Promise<void> | null = null;
+function authReady() {
+  if (!_authReady) {
+    _authReady = new Promise((resolve) => {
+      const unsub = onAuthStateChanged(auth(), () => { unsub(); resolve(); });
+    });
+  }
+  return _authReady;
 }
 
-async function handle(res: Response) {
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-  return data;
-}
-
-export async function authPost(payload: Record<string, unknown>) {
-  const res = await fetch("/api/auth", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return handle(res);
-}
-
-// Verify the session; returns the user or null. Demo-aware.
 export async function verifySession(): Promise<SessionUser | null> {
   if (hasDemoSession()) return demoUser(getDemoRole());
-  if (isDemoBackend()) return null; // static demo build, visitor not signed in
-  const token = getToken();
-  if (!token) return null;
+  if (isDemoBackend()) return null;
+  await authReady();
+  if (!auth().currentUser) return null;
   try {
-    const res = await fetch("/api/auth", { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.user as SessionUser;
+    const d = await fbHandle("GET", "/api/auth");
+    return (d.user as SessionUser) || null;
   } catch {
     return null;
   }
 }
 
-// Authenticated API calls (attach the Bearer token). Demo-aware.
-export async function apiGet(path: string) {
-  if (isDemoBackend()) return demoHandle("GET", path);
-  const res = await fetch(path, { headers: { Authorization: `Bearer ${getToken()}` } });
-  return handle(res);
-}
-export async function apiPost(path: string, body: Record<string, unknown>) {
-  if (isDemoBackend()) return demoHandle("POST", path, body);
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-    body: JSON.stringify(body),
-  });
-  return handle(res);
+export async function signIn(email: string, password: string): Promise<SessionUser> {
+  await signInWithEmailAndPassword(auth(), email.trim(), password);
+  clearProfileCache();
+  const d = await fbHandle("GET", "/api/auth");
+  return d.user as SessionUser;
 }
 
-// Public (unauthenticated) POST — used by the landing waitlist forms.
+export function signOutUser() {
+  clearProfileCache();
+  return signOut(auth());
+}
+// Back-compat name used by PortalShell.
+export function clearSession() { void signOutUser(); }
+
+export async function apiGet(path: string): Promise<any> {
+  if (isDemoBackend()) return demoHandle("GET", path);
+  return fbHandle("GET", path);
+}
+export async function apiPost(path: string, body: Record<string, unknown>): Promise<any> {
+  if (isDemoBackend()) return demoHandle("POST", path, body);
+  const r = await fbHandle("POST", path, body);
+  if (r && (r as any).error) throw new Error((r as any).error);
+  return r;
+}
+// Public (unauthenticated) POST — landing waitlist.
 export async function publicPost(path: string, body: Record<string, unknown>) {
   if (isDemoBackend()) return demoHandle("POST", path, body);
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return handle(res);
+  const r = await fbHandle("POST", path, body);
+  if (r && (r as any).error) throw new Error((r as any).error);
+  return r;
 }
 
-// Where each role lands after login.
 export function homeForRole(role: Role): string {
   if (role === "caregiver") return "/caregiver/";
   if (role === "family") return "/family/";

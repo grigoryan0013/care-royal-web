@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers (Care Royal web app; new plural collections) ----
+    function signedIn() { return request.auth != null; }
+    function myDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function myTenant() { return myDoc().tenantId; }
+    function myRole() { return myDoc().role; }
+    function isAgency() { return signedIn() && (myRole() == 'agency_admin' || myRole() == 'agency_coord'); }
+    // resource (existing doc) / request.resource (incoming) belong to my tenant
+    function sameTenantR() { return signedIn() && resource.data.tenantId == myTenant(); }
+    function sameTenantW() { return signedIn() && request.resource.data.tenantId == myTenant(); }
+
+    // ---- public pre-launch waitlist ----
+    match /waitlist/{id} {
+      allow create: if true;            // anyone can join
+      allow read, update, delete: if false;  // exported by owner out-of-band
+    }
+
+    // ---- tenants ----
+    match /tenants/{tid} {
+      allow read: if signedIn() && myTenant() == tid;
+      allow create: if signedIn();      // first admin creates their tenant (setup)
+      allow update: if isAgency() && myTenant() == tid;
+      allow delete: if false;
+    }
+
+    // ---- user profiles (role + tenant live here) ----
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || (isAgency() && resource.data.tenantId == myTenant()));
+      allow create: if signedIn() && request.auth.uid == uid;  // self profile at signup/setup
+      allow update: if signedIn() && (request.auth.uid == uid || (isAgency() && resource.data.tenantId == myTenant()));
+      allow delete: if false;
+    }
+
+    // ---- agency-managed collections ----
+    match /services/{id} {
+      allow read: if sameTenantR();
+      allow create: if isAgency() && sameTenantW();
+      allow update, delete: if isAgency() && sameTenantR();
+    }
+    match /leads/{id} {
+      allow read: if isAgency() && sameTenantR();
+      allow create: if isAgency() && sameTenantW();
+      allow update, delete: if isAgency() && sameTenantR();
+    }
+    match /invoices/{id} {
+      allow read: if sameTenantR();
+      allow create, update: if isAgency() && sameTenantW();
+      allow delete: if false;
+    }
+    match /caregiverProfiles/{id} {
+      allow read: if sameTenantR();
+      allow create, update: if signedIn() && sameTenantW();
+    }
+
+    // ---- households & recipients (family-owned, tenant-isolated) ----
+    match /households/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW();
+      allow update: if signedIn() && sameTenantR();
+    }
+    match /recipients/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW();
+      allow update, delete: if signedIn() && sameTenantR();
+    }
+    match /householdMembers/{id} {
+      allow read: if sameTenantR();
+      allow create, update, delete: if signedIn() && sameTenantW();
+    }
+
+    // ---- bookings: family requests, agency approves, caregiver completes ----
+    match /bookings/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW() && request.resource.data.status == 'requested';
+      allow update: if sameTenantR() && (isAgency() || resource.data.caregiverId == request.auth.uid);
+    }
+
+    // ---- shifts: agency creates; agency, assigned caregiver, or an open shift ----
+    match /shifts/{id} {
+      allow read: if sameTenantR();
+      allow create: if isAgency() && sameTenantW();
+      allow update: if sameTenantR() && (isAgency() || resource.data.caregiverId == request.auth.uid || resource.data.status == 'open');
+    }
+
+    // ---- documents: agency issues, tenant member signs ----
+    match /documents/{id} {
+      allow read: if sameTenantR();
+      allow create: if isAgency() && sameTenantW();
+      allow update: if sameTenantR();
+    }
+  }
+}

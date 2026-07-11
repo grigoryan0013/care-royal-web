@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { authPost, saveSession, homeForRole, verifySession } from "../lib/session";
+import { signIn, homeForRole, verifySession } from "../lib/session";
 import { isDemoBackend, enableDemo } from "../lib/demo";
 
 export default function LoginPage() {
@@ -31,9 +31,8 @@ export default function LoginPage() {
         setErr("This is a preview. Sign in with the demo login to explore all portals.");
         return;
       }
-      const data = await authPost({ action: "login", email, password });
-      saveSession(data.token, data.user);
-      router.replace(homeForRole(data.user.role));
+      const user = await signIn(email, password);
+      router.replace(homeForRole(user.role));
     } catch (e2: unknown) {
       setErr(e2 instanceof Error ? e2.message : "Something went wrong");
     } finally {
