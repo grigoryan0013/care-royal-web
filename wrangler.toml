@@ -1,0 +1,10 @@
+name = "care-royal"
+pages_build_output_dir = "out"
+compatibility_date = "2024-01-01"
+
+# Secrets set in the Cloudflare Pages dashboard (never commit them):
+#   GOOGLE_SERVICE_ACCOUNT   full service-account JSON (one line)
+#   MASTER_SHEET_ID          the Care Royal master Google Sheet id
+#   ADMIN_JWT_SECRET         random string, signs user session JWTs
+#   STRIPE_SECRET_KEY        sk_live_... / sk_test_...
+#   STRIPE_WEBHOOK_SECRET    whsec_...
