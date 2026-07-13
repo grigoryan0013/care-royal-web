@@ -30,6 +30,14 @@ export default function DemoHub() {
         <button onClick={() => { disableDemo(); router.replace("/"); }} className="text-xs font-semibold text-ink-light hover:text-danger">Exit demo</button>
       </div>
 
+      <Link href="/owner/" className="card mb-5 block border-brand/40 bg-brand/5 transition hover:border-brand">
+        <div className="flex items-center justify-between">
+          <h2 className="font-serif text-xl text-ink">Platform owner</h2>
+          <span className="text-sm font-semibold text-brand">Open console →</span>
+        </div>
+        <p className="mt-2 text-sm text-ink-mid">You. Provision organizations (each agency that rents Care Royal), issue their admin login, and open any workspace.</p>
+      </Link>
+
       <div className="grid gap-5">
         {portals.map((p) => (
           <button key={p.role} onClick={() => enter(p.role)} className="card text-left transition hover:border-brand">
