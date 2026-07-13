@@ -18,6 +18,14 @@ service cloud.firestore {
       allow read, update, delete: if false;  // exported by owner out-of-band
     }
 
+    // ---- public waitlist position counter (used by the marketing landing) ----
+    match /counters/waitlist {
+      allow read, write: if true;
+    }
+    match /counters/{counterId} {
+      allow read, write: if false;
+    }
+
     // ---- tenants ----
     match /tenants/{tid} {
       allow read: if signedIn() && myTenant() == tid;
