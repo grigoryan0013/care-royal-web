@@ -35,19 +35,22 @@ export default function AgencyPortal() {
   const [caregivers, setCaregivers] = useState<Caregiver[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [invoices, setInvoices] = useState<{ amount: string; status: string; createdAt: string }[]>([]);
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [s, a, b, sh] = await Promise.all([
+    const [s, a, b, sh, inv] = await Promise.all([
       apiGet("/api/services").catch(() => ({ services: [] })),
       apiGet("/api/agency").catch(() => ({ clients: [], caregivers: [] })),
       apiGet("/api/bookings").catch(() => ({ bookings: [] })),
       apiGet("/api/shifts").catch(() => ({ shifts: [] })),
+      apiGet("/api/invoices").catch(() => ({ invoices: [] })),
     ]);
     setServices(s.services || []);
     setClients(a.clients || []); setCaregivers(a.caregivers || []);
     setBookings(b.bookings || []);
     setShifts(sh.shifts || []);
+    setInvoices(inv.invoices || []);
   }, []);
   useEffect(() => { load(); }, [load]);
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(""), 3000); }
@@ -60,18 +63,7 @@ export default function AgencyPortal() {
       <p className="mb-6 text-sm text-ink-light">Agency console</p>
       {msg && <p className="mb-4 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</p>}
 
-      {active === "dashboard" && (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            ["Pending approvals", String(pending.length)],
-            ["Total bookings", String(bookings.length)],
-            ["Clients", String(clients.length)],
-            ["Caregivers", String(caregivers.length)],
-          ].map(([label, val]) => (
-            <div key={label} className="card"><div className="text-3xl font-semibold text-brand">{val}</div><div className="mt-1 text-sm text-ink-mid">{label}</div></div>
-          ))}
-        </div>
-      )}
+      {active === "dashboard" && <Dashboard pending={pending} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} onGo={setActive} />}
 
       {active === "approvals" && <Approvals pending={pending} caregivers={caregivers} onChange={() => { load(); flash("Updated."); }} />}
       {active === "clients" && <Clients clients={clients} />}
@@ -84,6 +76,78 @@ export default function AgencyPortal() {
       {active === "documents" && <AgencyDocs clients={clients} onChange={() => flash("Document sent.")} />}
       {active === "leads" && <Leads />}
     </PortalShell>
+  );
+}
+
+function Dashboard({ pending, shifts, invoices, clients, caregivers, onGo }: {
+  pending: Booking[]; shifts: Shift[]; invoices: { amount: string; status: string; createdAt: string }[];
+  clients: Client[]; caregivers: Caregiver[]; onGo: (k: string) => void;
+}) {
+  const now = new Date();
+  const sameDay = (iso: string) => { const d = new Date(iso); return !isNaN(d.getTime()) && d.toDateString() === now.toDateString(); };
+  const weekAgo = new Date(now.getTime() - 7 * 864e5);
+  const fmtTime = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+  const clockedIn = shifts.filter((s) => s.clockIn && !s.clockOut);
+  const todays = shifts.filter((s) => sameDay(s.start)).sort((a, b) => a.start.localeCompare(b.start));
+  const revenue = invoices.filter((i) => i.status === "paid" && new Date(i.createdAt) >= weekAgo)
+    .reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
+
+  const Stat = ({ label, val, go }: { label: string; val: string; go: string }) => (
+    <button onClick={() => onGo(go)} className="card text-left transition hover:border-brand">
+      <div className="text-3xl font-semibold text-brand">{val}</div>
+      <div className="mt-1 text-sm text-ink-mid">{label}</div>
+    </button>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Pending approvals" val={String(pending.length)} go="approvals" />
+        <Stat label="Clocked in now" val={String(clockedIn.length)} go="schedule" />
+        <Stat label="Today's shifts" val={String(todays.length)} go="calendar" />
+        <Stat label="Revenue this week" val={"$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" />
+      </div>
+
+      {pending.length > 0 && (
+        <div className="card flex items-center justify-between">
+          <div className="text-sm"><b className="text-ink">{pending.length}</b> <span className="text-ink-mid">booking {pending.length === 1 ? "request" : "requests"} waiting for approval</span></div>
+          <button onClick={() => onGo("approvals")} className="btn-primary">Review</button>
+        </div>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="card">
+          <h3 className="mb-3 font-serif text-lg text-ink">Clocked in now</h3>
+          {clockedIn.length === 0 ? <p className="text-sm text-ink-light">No one is clocked in right now.</p> : (
+            <ul className="space-y-3">
+              {clockedIn.map((s) => (
+                <li key={s.shiftId} className="flex items-center gap-3 text-sm">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-ok" />
+                  <span><b className="text-ink">{s.caregiverName || "Caregiver"}</b> <span className="text-ink-mid">· {s.recipientName || "client"} · {s.serviceName}</span></span>
+                  <span className="ml-auto text-xs text-ink-light">since {fmtTime(s.clockIn)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="card">
+          <h3 className="mb-3 font-serif text-lg text-ink">Today&apos;s schedule</h3>
+          {todays.length === 0 ? <p className="text-sm text-ink-light">Nothing scheduled today.</p> : (
+            <ul className="space-y-3">
+              {todays.map((s) => (
+                <li key={s.shiftId} className="flex items-center gap-3 text-sm">
+                  <span className="w-16 shrink-0 tabular-nums text-ink-mid">{fmtTime(s.start)}</span>
+                  <span><b className="text-ink">{s.serviceName}</b> <span className="text-ink-mid">· {s.recipientName || "client"} · {s.caregiverName || "Unassigned"}</span></span>
+                  <span className={"ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold " + (s.status === "completed" ? "bg-ok/10 text-ok" : s.status === "in_progress" ? "bg-gold/15 text-gold-dark" : "bg-brand-light text-brand")}>{s.status.replace("_", " ")}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="text-sm text-ink-light">Roster: <b className="text-ink-mid">{clients.length}</b> clients · <b className="text-ink-mid">{caregivers.length}</b> caregivers</div>
+    </div>
   );
 }
 
