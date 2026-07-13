@@ -14,6 +14,7 @@ export default function Setup() {
   const [name, setName] = useState("Owner");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -22,6 +23,8 @@ export default function Setup() {
     setErr("");
     setBusy(true);
     try {
+      // Owner-only gate: provisioning agencies is restricted to the platform owner.
+      if (code.trim() !== "201816") { setErr("Enter the owner passcode to provision an agency."); setBusy(false); return; }
       const cred = await createUserWithEmailAndPassword(auth(), email.trim(), password);
       const uid = cred.user.uid;
       const now = new Date().toISOString();
@@ -44,9 +47,10 @@ export default function Setup() {
       <div className="w-full max-w-md">
         <Link href="/" className="mb-8 block text-center font-serif text-2xl font-semibold text-brand">Care Royal</Link>
         <div className="card">
-          <h1 className="mb-1 font-serif text-2xl text-ink">Owner setup</h1>
-          <p className="mb-6 text-sm text-ink-light">Create the first admin account and your agency. Do this once.</p>
+          <h1 className="mb-1 font-serif text-2xl text-ink">Provision an agency</h1>
+          <p className="mb-6 text-sm text-ink-light">Owner only. Create an agency workspace and issue its admin login.</p>
           <form onSubmit={submit} className="space-y-4">
+            <div><label className="label">Owner passcode</label><input className="field" type="password" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="none" required /></div>
             <div><label className="label">Agency name</label><input className="field" value={agency} onChange={(e) => setAgency(e.target.value)} required /></div>
             <div><label className="label">Your name</label><input className="field" value={name} onChange={(e) => setName(e.target.value)} required /></div>
             <div><label className="label">Admin email</label><input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="none" required /></div>
