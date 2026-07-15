@@ -18,6 +18,16 @@ service cloud.firestore {
       allow read, update, delete: if false;  // exported by owner out-of-band
     }
 
+    // ---- public quote requests: a prospective client fills a form (no account)
+    // and it lands in one agency's pipeline. Must carry a tenantId. The agency
+    // reads/updates its own; nobody can read across tenants.
+    match /quoteRequests/{id} {
+      allow create: if request.resource.data.tenantId is string
+                    && request.resource.data.tenantId.size() > 0;
+      allow read, update: if isAgency() && resource.data.tenantId == myTenant();
+      allow delete: if false;
+    }
+
     // ---- public waitlist position counter (used by the marketing landing) ----
     match /counters/waitlist {
       allow read, write: if true;

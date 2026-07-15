@@ -33,10 +33,11 @@ export default function Home() {
             their schedule and pay. Your agency approves everything and gets paid —
             all in one place.
           </p>
-          <div className="mt-8 flex gap-3">
-            <Link href="/login/?mode=signup" className="btn-primary px-6 py-3">Get started</Link>
-            <Link href="/login/" className="btn-ghost px-6 py-3">Sign in</Link>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="/quote/" className="btn-primary px-6 py-3">Request a free quote</Link>
+            <Link href="/login/?mode=signup" className="btn-ghost px-6 py-3">I run an agency</Link>
           </div>
+          <p className="mt-3 text-sm text-ink-light">Need care? Request a quote — no account required. Run an agency? Get started free.</p>
         </div>
 
         <div className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">

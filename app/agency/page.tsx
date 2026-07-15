@@ -55,10 +55,11 @@ export default function AgencyPortal() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [leadCount, setLeadCount] = useState(0);
   const [leadCounts, setLeadCounts] = useState<Record<string, number>>({});
+  const [quoteReqs, setQuoteReqs] = useState(0);
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [s, a, b, sh, inv, t, ld] = await Promise.all([
+    const [s, a, b, sh, inv, t, ld, qr] = await Promise.all([
       apiGet("/api/services").catch(() => ({ services: [] })),
       apiGet("/api/agency").catch(() => ({ clients: [], caregivers: [] })),
       apiGet("/api/bookings").catch(() => ({ bookings: [] })),
@@ -66,7 +67,9 @@ export default function AgencyPortal() {
       apiGet("/api/invoices").catch(() => ({ invoices: [] })),
       apiGet("/api/tenant").catch(() => ({ tenant: null })),
       apiGet("/api/leads").catch(() => ({ grandTotal: 0 })),
+      apiGet("/api/quote-requests").catch(() => ({ requests: [] })),
     ]);
+    setQuoteReqs((qr.requests || []).filter((r: Record<string, string>) => r.status === "new").length);
     setServices(s.services || []);
     setClients(a.clients || []); setCaregivers(a.caregivers || []);
     setBookings(b.bookings || []);
@@ -82,6 +85,7 @@ export default function AgencyPortal() {
   const pending = bookings.filter((b) => b.status === "requested");
   const unassigned = shifts.filter((s) => s.status === "open");
   const notifications: NotifItem[] = [
+    ...(quoteReqs > 0 ? [{ text: `${quoteReqs} new quote request${quoteReqs === 1 ? "" : "s"}`, sub: "Review in Leads", tone: "ok" as const }] : []),
     ...pending.map((b) => ({ text: `Booking request: ${b.serviceName}`, sub: `${b.recipientName} · ${b.householdName}`, tone: "gold" as const })),
     ...unassigned.map((s) => ({ text: `Unassigned shift: ${s.serviceName}`, sub: s.start ? fmtDate(s.start) : "", tone: "brand" as const })),
   ].slice(0, 12);
@@ -822,6 +826,7 @@ function Leads() {
   const [stage, setStage] = useState("");
   const [q, setQ] = useState("");
   const [importing, setImporting] = useState("");
+  const [requests, setRequests] = useState<Record<string, string>[]>([]);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -830,7 +835,13 @@ function Leads() {
     const d = await apiGet(`/api/leads?${params.toString()}`).catch(() => ({ leads: [], counts: {}, grandTotal: 0 }));
     setLeads(d.leads || []); setCounts(d.counts || {}); setGrandTotal(d.grandTotal || 0);
   }, [stage, q]);
+  const loadReq = useCallback(async () => {
+    const d = await apiGet("/api/quote-requests").catch(() => ({ requests: [] }));
+    setRequests((d.requests || []).filter((r: Record<string, string>) => r.status === "new"));
+  }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadReq(); }, [loadReq]);
+  async function reqAct(id: string, action: string) { await apiPost("/api/quote-requests", { action, quoteId: id }); loadReq(); load(); }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -865,6 +876,30 @@ function Leads() {
 
   return (
     <div className="space-y-5">
+      {requests.length > 0 && (
+        <div className="card border-gold/40 bg-gold/5">
+          <h3 className="mb-3 font-serif text-lg text-ink">{requests.length} new quote request{requests.length === 1 ? "" : "s"}</h3>
+          <div className="space-y-3">
+            {requests.map((r) => (
+              <div key={r._id || r.quoteId} className="rounded-lg border border-rule bg-white p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-ink">{r.name || "(no name)"} <span className="text-ink-light">· {r.phone}{r.city ? ` · ${r.city}` : ""}</span></div>
+                    <div className="mt-0.5 text-xs text-ink-light">{r.email}</div>
+                    <div className="mt-1 text-sm text-ink-mid">Care for {r.recipientName || r.careFor}{r.services ? ` · ${r.services}` : ""}{r.frequency ? ` · ${r.frequency}` : ""}</div>
+                    {r.details && <div className="mt-1 text-xs text-ink-light">{r.details}</div>}
+                    {r.bestTime && <div className="mt-1 text-xs text-ink-light">Best time: {r.bestTime}</div>}
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button onClick={() => reqAct(r._id || r.quoteId, "convert")} className="btn-primary btn-sm">Add to pipeline</button>
+                    <button onClick={() => reqAct(r._id || r.quoteId, "dismiss")} className="btn-ghost btn-sm">Dismiss</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

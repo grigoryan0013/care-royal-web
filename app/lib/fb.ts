@@ -58,8 +58,41 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     return ok();
   }
 
+  // Public quote request — prospective client, no account. Resolves the agency
+  // by its shareable code and drops a request into that agency's inbox.
+  if (p === "/api/quote" && method === "POST") {
+    const code = String(body.code || "").trim().toUpperCase();
+    const jc = await getDoc(doc(db(), "joinCodes", code));
+    if (!jc.exists()) return { error: "We couldn't find that agency code. Please check it with the agency." };
+    const tenantId = (jc.data() as { tenantId: string; agencyName?: string }).tenantId;
+    await create("quoteRequests", "quoteId", {
+      tenantId, name: body.name || "", email: body.email || "", phone: body.phone || "",
+      city: body.city || "", zip: body.zip || "", careFor: body.careFor || "", recipientName: body.recipientName || "",
+      services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : (body.services || ""),
+      frequency: body.frequency || "", startDate: body.startDate || "", schedule: body.schedule || "",
+      budget: body.budget || "", details: body.details || "", bestTime: body.bestTime || "",
+      status: "new", source: "quote", createdAt: now(),
+    });
+    return { ok: true, agency: (jc.data() as { agencyName?: string }).agencyName || "" };
+  }
+
   const m = await me();
   const T = m.tenantId;
+
+  // ---- agency inbox of incoming quote requests
+  if (p === "/api/quote-requests") {
+    if (method === "GET") {
+      const qr = await readCol("quoteRequests", T);
+      return { requests: qr.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) };
+    }
+    if (body.action === "dismiss") { await update("quoteRequests", body.quoteId, { status: "dismissed" }); return ok(); }
+    if (body.action === "convert") {
+      const qr = (await readCol("quoteRequests", T)).find((x) => x._id === body.quoteId || x.quoteId === body.quoteId);
+      await create("leads", "leadId", { tenantId: T, name: qr?.name || "", email: qr?.email || "", phone: qr?.phone || "", address: "", city: qr?.city || "", zip: qr?.zip || "", stage: "new", source: "quote", notes: [qr?.services, qr?.frequency, qr?.details].filter(Boolean).join(" · "), createdAt: now() });
+      await update("quoteRequests", body.quoteId, { status: "converted" });
+      return ok();
+    }
+  }
 
   if (p === "/api/auth" && method === "GET") {
     return { user: { userId: m.uid, tenantId: T, email: m.email, role: m.role, name: m.name } };

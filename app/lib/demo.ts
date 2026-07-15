@@ -54,7 +54,7 @@ type Row = Record<string, string>;
 interface Db {
   Users: Row[]; Households: Row[]; Recipients: Row[]; Services: Row[];
   CaregiverProfiles: Row[]; Bookings: Row[]; Shifts: Row[]; Invoices: Row[];
-  Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Messages: Row[]; Tenant: Row;
+  Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Messages: Row[]; QuoteRequests: Row[]; Tenant: Row;
 }
 
 function seedIfEmpty() {
@@ -117,6 +117,9 @@ export function resetDemo() {
       { docId: "doc2", tenantId: IDS.tenant, subjectType: "caregiver", subjectId: IDS.cg, template: "hipaa", driveFileId: "", status: "unsigned", signedBy: "", signedAt: "", title: "HIPAA Acknowledgment", content: "HIPAA ACKNOWLEDGMENT\n\nI acknowledge Care Royal may use health information as necessary to coordinate and deliver care.", signature: "", householdId: "", createdAt: now() },
     ],
     Leads: seedLeads(),
+    QuoteRequests: [
+      { quoteId: "qr1", tenantId: IDS.tenant, name: "Denise Carter", email: "denise.c@example.com", phone: "818-555-0170", city: "Burbank", zip: "91505", careFor: "person", recipientName: "my mother (82)", services: "Personal care, Companionship, Medication reminders", frequency: "3x per week", startDate: "", schedule: "Mornings preferred", budget: "", details: "Mom has limited mobility after a fall. Looking to start within two weeks.", bestTime: "Afternoons", status: "new", source: "quote", createdAt: agoHours(5) },
+    ],
     Waitlist: [],
     Messages: [
       { messageId: "msg1", tenantId: IDS.tenant, householdId: "hh1", fromUid: IDS.family, fromName: "Jordan Miller", fromRole: "family", text: "Hi, could Ana arrive a little earlier on Friday?", createdAt: agoHours(20) },
@@ -337,6 +340,19 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   }
   if (p === "/api/messages" && method === "POST") {
     db.Messages.push({ messageId: id("msg"), tenantId: IDS.tenant, householdId: String(body.householdId), fromUid: me.userId, fromName: me.name, fromRole: me.role, text: String(body.text || ""), createdAt: now() });
+    write(db); return ok();
+  }
+
+  // ---- quote requests
+  if (p === "/api/quote" && method === "POST") {
+    db.QuoteRequests.push({ quoteId: id("qr"), tenantId: IDS.tenant, name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), city: String(body.city || ""), zip: String(body.zip || ""), careFor: String(body.careFor || ""), recipientName: String(body.recipientName || ""), services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : String(body.services || ""), frequency: String(body.frequency || ""), startDate: String(body.startDate || ""), schedule: String(body.schedule || ""), budget: String(body.budget || ""), details: String(body.details || ""), bestTime: String(body.bestTime || ""), status: "new", source: "quote", createdAt: now() });
+    write(db); return { ok: true, agency: db.Tenant.name || "Care Royal" };
+  }
+  if (p === "/api/quote-requests" && method === "GET") return { requests: db.QuoteRequests.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) };
+  if (p === "/api/quote-requests" && method === "POST") {
+    const q = db.QuoteRequests.find((x) => x.quoteId === body.quoteId);
+    if (body.action === "dismiss" && q) q.status = "dismissed";
+    if (body.action === "convert" && q) { db.Leads.push({ leadId: id("lead"), tenantId: IDS.tenant, name: q.name, email: q.email, phone: q.phone, address: "", city: q.city, zip: q.zip, stage: "new", source: "quote", notes: [q.services, q.frequency, q.details].filter(Boolean).join(" · "), createdAt: now() }); q.status = "converted"; }
     write(db); return ok();
   }
 
