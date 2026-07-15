@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { verifySession, clearSession, homeForRole, apiGet, type Role, type SessionUser } from "../app/lib/session";
-import { hasDemoSession, setDemoRole, getDemoRole } from "../app/lib/demo";
 import Icon, { type IconName } from "./Icon";
 
 interface Branding { displayName?: string; logoUrl?: string; brandColor?: string; accentColor?: string }
@@ -95,14 +94,10 @@ export default function PortalShell({
   }
 
   function signOut() {
-    if (hasDemoSession()) { router.replace("/demo/"); return; }
     clearSession();
     router.replace("/login/");
   }
 
-  const demo = hasDemoSession();
-  const demoRole = demo ? getDemoRole() : null;
-  const switchTo = (r: Role) => { setDemoRole(r); router.push(r === "caregiver" ? "/caregiver/" : r === "family" ? "/family/" : "/agency/"); };
   const initials = (user.name || user.email || "?").trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
 
   const navList = (
@@ -134,16 +129,6 @@ export default function PortalShell({
 
   return (
     <div className="app-bg min-h-screen">
-      {demo && (
-        <div className="flex flex-wrap items-center gap-2 bg-brand-deep px-4 py-2 text-xs text-white">
-          <span className="font-semibold uppercase tracking-wide text-white/60">Demo — switch portal</span>
-          {([["agency_admin", "Agency"], ["family", "Family"], ["caregiver", "Caregiver"]] as [Role, string][]).map(([r, label]) => (
-            <button key={r} onClick={() => switchTo(r)} className={`rounded px-2.5 py-1 font-semibold transition ${(demoRole === r || (r === "agency_admin" && demoRole === "agency_coord")) ? "bg-white text-brand-deep" : "bg-white/10 text-white hover:bg-white/20"}`}>{label}</button>
-          ))}
-          <button onClick={() => router.push("/demo/")} className="ml-auto rounded px-2.5 py-1 font-semibold text-white/70 hover:text-white">Demo home</button>
-        </div>
-      )}
-
       <div className="flex min-h-screen">
         {/* Desktop sidebar */}
         <aside className="hidden w-64 shrink-0 flex-col border-r border-rule bg-white md:flex">

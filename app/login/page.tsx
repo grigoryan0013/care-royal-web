@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn, signUp, homeForRole, verifySession, type SignupRole } from "../lib/session";
-import { isDemoBackend, enableDemo } from "../lib/demo";
 import Icon from "../../components/Icon";
 
 type Tab = "signin" | "signup";
@@ -41,14 +40,6 @@ export default function AuthPage() {
     e.preventDefault();
     setErr(""); setBusy(true);
     try {
-      // Demo access — one login, all portals.
-      if (tab === "signin" && email.trim().toLowerCase() === "grigoryan" && password === "201816") {
-        enableDemo(); router.replace("/demo/"); return;
-      }
-      if (isDemoBackend()) {
-        setErr("This is a preview. Sign in with the demo login (grigoryan / 201816) to explore all portals.");
-        return;
-      }
       if (tab === "signin") {
         const u = await signIn(email, password);
         router.replace(homeForRole(u.role));
