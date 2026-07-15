@@ -3,6 +3,7 @@
 // the Agency, Family, and Caregiver portals to test every function. All actions
 // mutate a localStorage DB so changes persist and show across portals.
 import type { Role, SessionUser } from "./session";
+import { generate } from "./templates";
 
 const FLAG = "cr_demo";           // demo backend (route /api calls to the mock)
 const SESSION = "cr_demo_session"; // logged into a demo portal
@@ -435,13 +436,9 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     if (body.action === "cash_out" && me.role === "caregiver") { const available = Math.round((accrued(me.userId) - paidOut(me.userId)) * 100) / 100; const gross = Math.min(available, Math.max(0, parseFloat(String(body.amount)) || available)); if (gross < 1) return { error: "Nothing available to cash out yet." }; arr("Payouts").push({ payoutId: id("po"), tenantId: IDS.tenant, caregiverId: me.userId, gross: gross.toFixed(2), fee: FEE.toFixed(2), net: (gross - FEE).toFixed(2), method: "instant", status: "paid", createdAt: now() }); write(db); return { ok: true, demo: true }; }
   }
 
-  // Item 4: AI (demo returns the heuristic text directly)
+  // Item 4: Assistant — same in-code template engine as full mode (no AI key).
   if (p === "/api/ai" && method === "POST") {
-    const inp = (body.input || {}) as Row; const task = String(body.task || "");
-    if (task === "care_plan") return { text: `CARE PLAN (draft)\n\nRecipient: ${inp.recipientName || ""}\nConditions: ${inp.conditions || "not specified"}\n\nGoals:\n- Maintain safety, comfort and dignity at home\n- Support activities of daily living\n- Monitor and report changes in condition\n\nServices: ${inp.services || "companionship, personal care"}\nFrequency: ${inp.frequency || "as scheduled"}`, ai: false };
-    if (task === "summarize") { const notes = String(inp.notes || ""); const flags = /\b(fall|fell|pain|refus|dizz|confus|bruise)\b/i.test(notes) ? "Risk flags: review for possible fall/pain/behavioral change." : "No obvious risk flags detected."; return { text: `Summary: ${notes.slice(0, 400) || "No notes yet."}\n\n${flags}`, ai: false }; }
-    if (task === "family_update") return { text: `Hi ${inp.familyName || "there"}, here's an update on ${inp.recipientName || "your loved one"}: recent visits went well and care is on track.`, ai: false };
-    return { text: "AI is not configured in demo mode.", ai: false };
+    return { text: generate(String(body.task || ""), (body.input || {}) as Row), ai: false };
   }
 
   // Item 5: scheduling + swaps

@@ -43,9 +43,9 @@ to build it in this codebase**, **dependencies**, and **status**.
 ### 4. AI layer (highest near-term differentiator)
 - **What:** Care-plan generation from intake; visit-note summarization + risk flags (falls/pain trends across `shifts.notes`); auto-drafted family updates; voice/chat intake bot that turns a call into a `quoteRequests` doc.
 - **Why:** The story that earns AI-premium multiples; incumbents are weak here.
-- **Build:** Add an Anthropic-backed Cloud Function (key as a secret) or proxy; call from client via `apiPost`. Care-plan output feeds the `careplan` type in `components/DocStudio.tsx`. Note-summary reads completed `shifts`. Use the latest Claude model (see the `claude-api` skill / `CLAUDE.md`).
-- **Deps:** `ANTHROPIC_API_KEY` secret, Blaze.
-- **Status:** BUILT. aiGenerate Cloud Function (Anthropic claude-opus-4-8, adaptive thinking): care-plan gen, note summarization + risk flags, family updates, intake; agency "AI assistant" console; heuristic fallback until ANTHROPIC_API_KEY is set.
+- **Build:** In-code template + rule engine `app/lib/templates.ts` (`generate(task, input)`), routed via `/api/ai` in both `fb.ts` and `demo.ts`. A condition knowledge base maps keywords (diabetes, dementia, fall risk, medication, etc.) to goals/interventions/safety; visit-note risk flags scan for fall/pain/skin/behavioral/nutrition/medication/vitals language. No model call. If richer LLM output is ever wanted, swap `generate()` for a proxy — the contract stays the same.
+- **Deps:** None — no AI key, no Blaze, no network. Works offline out of the box.
+- **Status:** BUILT, no AI key. In-code template + rule engine (`app/lib/templates.ts`): condition-aware care-plan generation, visit-note summaries with categorized risk flags, family updates, and intake parsing. Agency "Assistant" console. Fully offline -- no Cloud Function, no external service, works out of the box.
 
 ### 5. Scheduling optimization at scale
 - **What:** Batch auto-schedule all open shifts (continuity of care, overtime avoidance, geography); caregiver shift-swap marketplace.
@@ -116,7 +116,6 @@ Deploy:
 - `cd cloud-functions && npm install && firebase deploy --only functions` (needs Blaze)
 
 Secrets (set with `firebase functions:secrets:set NAME`), each enables one feature:
-- `ANTHROPIC_API_KEY` — item 4 (AI). Uses `claude-opus-4-8`.
 - `CHECKR_API_KEY` — item 7 (background checks).
 - `INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` — item 10 (QuickBooks OAuth).
 - Existing `STRIPE_SECRET_KEY` also powers item 2 instant payouts (caregiver Stripe payout destinations needed).

@@ -9,7 +9,6 @@ const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const Stripe = require("stripe");
 const { google } = require("googleapis");
-const Anthropic = require("@anthropic-ai/sdk");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -213,41 +212,11 @@ exports.emailTest = onCall({ secrets: [GMAIL_SERVICE_ACCOUNT] }, async (request)
 // ROADMAP FEATURES — server-side work. Each stays inert until its secret /
 // account is configured; the client falls back to heuristics/graceful states.
 // =====================================================================
-const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY"); // Item 4 (AI)
+// Item 4 (Assistant) runs entirely in-app via templates (app/lib/templates.ts) —
+// no AI key, no Cloud Function.
 const CHECKR_API_KEY = defineSecret("CHECKR_API_KEY");       // Item 7 (background checks)
 const INTUIT_CLIENT_ID = defineSecret("INTUIT_CLIENT_ID");   // Item 10 (QuickBooks)
 const INTUIT_CLIENT_SECRET = defineSecret("INTUIT_CLIENT_SECRET");
-
-// ---- ITEM 4: AI layer (Anthropic, latest Claude) --------------------------
-// Care-plan generation, visit-note summarization + risk flags, family updates,
-// and voice/chat intake. One callable, task-routed. Uses the latest Claude model
-// with adaptive thinking (see the claude-api skill / CLAUDE.md).
-const AI_PROMPTS = {
-  care_plan: "You are a home-care clinical assistant. Write a clear, structured care plan (goals, services, frequency, safety notes) for the recipient described. Be concrete and non-alarmist. Output plain text, no markdown headers beyond simple labels.",
-  summarize: "You are a home-care supervisor. Summarize the caregiver visit notes in 2-3 sentences, then on a new line list any risk flags (falls, pain trends, medication issues, behavioral changes). If none, say 'No risk flags.' Plain text only.",
-  family_update: "You are writing a warm, brief, honest update to a family member about their loved one's recent home-care visits. 2-4 sentences. Plain text.",
-  intake: "You are an intake assistant for a home-care agency. From the caller transcript, extract who care is for, the services needed, urgency, and a one-line summary. Respond as compact JSON with keys careFor, services, urgency, summary.",
-};
-exports.aiGenerate = onCall({ secrets: [ANTHROPIC_API_KEY], timeoutSeconds: 120 }, async (request) => {
-  const uid = request.auth && request.auth.uid;
-  if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
-  const key = ANTHROPIC_API_KEY.value();
-  if (!key) throw new HttpsError("failed-precondition", "AI is not configured.");
-  const task = (request.data && request.data.task) || "";
-  const system = AI_PROMPTS[task];
-  if (!system) throw new HttpsError("invalid-argument", "Unknown AI task.");
-  const input = (request.data && request.data.input) || {};
-  const client = new Anthropic({ apiKey: key });
-  const msg = await client.messages.create({
-    model: "claude-opus-4-8",
-    max_tokens: 2048,
-    thinking: { type: "adaptive" },
-    system,
-    messages: [{ role: "user", content: JSON.stringify(input) }],
-  });
-  const text = (msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
-  return { text, ai: true, model: msg.model };
-});
 
 // ---- ITEM 2: instant caregiver pay (Stripe instant payout / transfer) ------
 // Best-effort earned-wage access. Pays the caregiver's connected Stripe account

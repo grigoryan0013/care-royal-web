@@ -7,6 +7,7 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 import { DEFAULT_SERVICES } from "./catalog";
+import { generate } from "./templates";
 
 type Row = Record<string, any>;
 
@@ -533,17 +534,11 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     }
   }
 
-  // ---- ITEM 4: AI layer (Anthropic, via cloud function; heuristic fallback) -
+  // ---- ITEM 4: Assistant — template + rule based, fully in-code (no AI key).
+  // Care plans, visit-note summaries with risk flags, family updates and intake
+  // are generated deterministically so every agency has them with zero setup.
   if (p === "/api/ai" && method === "POST") {
-    const task = String(body.task || "");
-    try { const r = await httpsCallable(functions(), "aiGenerate")({ task, input: body.input || {} }); if ((r.data as Row)?.text) return r.data; } catch { /* fall through to heuristic */ }
-    // Heuristic fallbacks so the feature is useful before the AI key is set.
-    const inp = (body.input || {}) as Row;
-    if (task === "care_plan") return { text: `CARE PLAN (draft)\n\nRecipient: ${inp.recipientName || ""}\nConditions: ${inp.conditions || "not specified"}\n\nGoals:\n- Maintain safety, comfort and dignity at home\n- Support activities of daily living as needed\n- Monitor and report changes in condition\n\nServices: ${inp.services || "companionship, personal care"}\nFrequency: ${inp.frequency || "as scheduled"}\n\nThis draft was generated from intake. Connect an AI key for richer, condition-specific plans.`, ai: false };
-    if (task === "summarize") { const notes = String(inp.notes || ""); const flags = /\b(fall|fell|pain|refus|dizz|confus|bruise|short of breath|chest)\b/i.test(notes) ? "Risk flags: review notes for possible fall/pain/behavioral changes." : "No obvious risk flags detected."; return { text: `Summary: ${notes.slice(0, 400) || "No notes yet."}\n\n${flags}`, ai: false }; }
-    if (task === "family_update") return { text: `Hi ${inp.familyName || "there"}, here's an update on ${inp.recipientName || "your loved one"}: recent visits went well and care is on track. Reach out any time with questions.`, ai: false };
-    if (task === "intake") return { text: JSON.stringify({ careFor: inp.careFor || "person", services: inp.services || "", summary: String(inp.transcript || "").slice(0, 300) }), ai: false };
-    return { text: "AI is not configured yet. Set ANTHROPIC_API_KEY in cloud-functions to enable generation.", ai: false };
+    return { text: generate(String(body.task || ""), (body.input || {}) as Row), ai: false };
   }
 
   // ---- ITEM 5: Scheduling optimization + shift-swap marketplace ------------

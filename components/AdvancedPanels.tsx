@@ -33,19 +33,19 @@ export function AiPanel() {
   const [fields, setFields] = useState<Row>({});
   const [out, setOut] = useState("");
   const [busy, setBusy] = useState(false);
-  const [aiLive, setAiLive] = useState<boolean | null>(null);
+  const [copied, setCopied] = useState(false);
   const set = (k: string, v: string) => setFields((f) => ({ ...f, [k]: v }));
   async function run() {
-    setBusy(true); setOut("");
-    try { const d = await apiPost("/api/ai", { task, input: fields }); setOut(d.text || ""); setAiLive(!!d.ai); }
+    setBusy(true); setOut(""); setCopied(false);
+    try { const d = await apiPost("/api/ai", { task, input: fields }); setOut(d.text || ""); }
     catch (e) { setOut(e instanceof Error ? e.message : "Failed"); } finally { setBusy(false); }
   }
+  function copy() { navigator.clipboard?.writeText(out).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }); }
   const cur = AI_TASKS.find((t) => t.key === task)!;
   return (
     <div className="space-y-5">
       <div className="card">
-        <p className="text-sm text-ink-mid">Care Royal AI drafts care plans, summarizes visit notes with risk flags, and writes family updates. Review and edit everything before sending — it assists, it doesn&apos;t replace your judgment.</p>
-        {aiLive === false && <p className="mt-2 text-xs text-gold-dark">Running in heuristic mode. Add an AI key in cloud-functions to enable full generation.</p>}
+        <p className="text-sm text-ink-mid">Built-in templates draft care plans, summarize visit notes with risk flags, and write family updates — instantly, with no setup or external service. Review and edit everything before you use it; it assists, it doesn&apos;t replace your judgment.</p>
       </div>
       <div className="card space-y-4">
         <div className="flex flex-wrap gap-2">
@@ -62,9 +62,15 @@ export function AiPanel() {
         {task === "family_update" && (<div className="grid gap-3 sm:grid-cols-2">
           <div><label className="label">Family member</label><input className="field field-sm" onChange={(e) => set("familyName", e.target.value)} /></div>
           <div><label className="label">Recipient</label><input className="field field-sm" onChange={(e) => set("recipientName", e.target.value)} /></div>
+          <div><label className="label">Today&apos;s activities</label><input className="field field-sm" onChange={(e) => set("activities", e.target.value)} placeholder="a walk, lunch, medication" /></div>
+          <div><label className="label">Mood</label><input className="field field-sm" onChange={(e) => set("mood", e.target.value)} placeholder="cheerful, tired" /></div>
+          <div className="sm:col-span-2"><label className="label">Next visit / plan</label><input className="field field-sm" onChange={(e) => set("next", e.target.value)} placeholder="Thursday morning" /></div>
         </div>)}
         <button onClick={run} disabled={busy} className="btn-primary">{busy ? "Generating…" : "Generate"}</button>
-        {out && <div className="whitespace-pre-line rounded-lg border border-rule bg-paper p-4 text-sm text-ink-mid">{out}</div>}
+        {out && <div className="space-y-2">
+          <div className="flex justify-end"><button onClick={copy} className="btn-ghost btn-sm">{copied ? "Copied" : "Copy"}</button></div>
+          <div className="whitespace-pre-line rounded-lg border border-rule bg-paper p-4 text-sm text-ink-mid">{out}</div>
+        </div>}
       </div>
     </div>
   );
