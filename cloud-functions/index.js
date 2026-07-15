@@ -3,15 +3,21 @@
 // "payments coming soon") until you deploy it with the two secrets set.
 // See PAYMENTS.md for the one-time setup + deploy steps.
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const Stripe = require("stripe");
+const { google } = require("googleapis");
 
 admin.initializeApp();
 const db = admin.firestore();
 
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
+// Same Gmail service-account JSON used by Tegula — its domain-wide delegation
+// already impersonates info@thecareroyal.com with the gmail.send scope, so no new
+// Workspace setup is needed; just set this secret. See PAYMENTS.md / EMAIL section.
+const GMAIL_SERVICE_ACCOUNT = defineSecret("GMAIL_SERVICE_ACCOUNT");
 const APP_URL = "https://thecareroyal.com"; // return URL base for onboarding/checkout
 
 function stripe() { return new Stripe(STRIPE_SECRET_KEY.value(), { apiVersion: "2024-06-20" }); }
@@ -103,4 +109,100 @@ exports.stripeWebhook = onRequest({ secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_
     if (invoiceId) await db.doc(`invoices/${invoiceId}`).set({ status: "paid", stripeId: event.data.object.payment_intent || "" }, { merge: true });
   }
   res.json({ received: true });
+});
+
+// =====================================================================
+// EMAIL — Gmail API via domain-wide-delegated service account (Tegula pattern)
+// =====================================================================
+const MAIL_SUBJECT = "info@thecareroyal.com"; // Workspace user the SA impersonates
+const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function encodeSubject(s) { return "=?UTF-8?B?" + Buffer.from(String(s), "utf8").toString("base64") + "?="; }
+function buildMime({ from, to, subject, html }) {
+  return [
+    `From: ${from}`, `To: ${to}`, `Subject: ${encodeSubject(subject || "")}`,
+    "MIME-Version: 1.0", "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "",
+    Buffer.from(html || "", "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n"),
+  ].join("\r\n");
+}
+function transporter() {
+  const creds = JSON.parse(GMAIL_SERVICE_ACCOUNT.value());
+  const auth = new google.auth.JWT({ email: creds.client_email, key: creds.private_key, scopes: ["https://www.googleapis.com/auth/gmail.send"], subject: MAIL_SUBJECT });
+  const gmail = google.gmail({ version: "v1", auth });
+  return async ({ from, to, subject, html }) => {
+    const raw = Buffer.from(buildMime({ from, to, subject, html })).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+  };
+}
+// Branded template wrapper. `agency` sets the display name + footer.
+function baseEmail(agency, bodyHtml) {
+  return `<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#f1f4f8;border-radius:14px;overflow:hidden">
+    <div style="background:linear-gradient(135deg,#0D0459,#4B39EF);padding:22px 28px">
+      <div style="color:#fff;font-size:20px;font-weight:700;font-family:Georgia,serif">${esc(agency || "Care Royal")}</div>
+      <div style="color:rgba(255,255,255,.65);font-size:11px;letter-spacing:.12em;text-transform:uppercase">Powered by Care Royal</div>
+    </div>
+    <div style="padding:28px">${bodyHtml}</div>
+    <div style="padding:16px 28px;color:#8b95a1;font-size:11px;border-top:1px solid #E0E3E7">This message was sent by ${esc(agency || "Care Royal")} via Care Royal. Please do not reply to this address.</div>
+  </div>`;
+}
+const btn = (href, label) => `<a href="${href}" style="display:inline-block;background:#4B39EF;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600;margin-top:8px">${label}</a>`;
+const fromFor = (agency) => `"${(agency || "Care Royal").replace(/"/g, "")} via Care Royal" <info@thecareroyal.com>`;
+
+async function agencyContact(tenantId) {
+  try {
+    const t = await db.doc(`tenants/${tenantId}`).get();
+    const name = t.exists ? t.data().name : "";
+    const ownerUid = t.exists ? t.data().ownerUid : "";
+    let email = "";
+    if (ownerUid) { const u = await db.doc(`users/${ownerUid}`).get(); email = u.exists ? u.data().email : ""; }
+    return { name, email };
+  } catch { return { name: "", email: "" }; }
+}
+
+// New quote request → acknowledge the client + notify the agency.
+exports.onQuoteRequest = onDocumentCreated({ document: "quoteRequests/{id}", secrets: [GMAIL_SERVICE_ACCOUNT] }, async (event) => {
+  const q = event.data.data(); if (!q) return;
+  const send = transporter();
+  const ag = await agencyContact(q.tenantId);
+  if (q.email) await send({ from: fromFor(ag.name), to: q.email, subject: "We received your care request", html: baseEmail(ag.name, `<h2 style="font-family:Georgia,serif;color:#14181B">Thank you, ${esc(q.name) || "there"}</h2><p style="color:#57636C">We received your request for care${q.recipientName ? ` for ${esc(q.recipientName)}` : ""}. ${esc(ag.name) || "The agency"} will review it and reach out${q.bestTime ? ` (${esc(q.bestTime).toLowerCase()})` : ""} to build your care plan and quote.</p>`) }).catch(() => {});
+  if (ag.email) await send({ from: fromFor("Care Royal"), to: ag.email, subject: `New quote request from ${q.name || "a client"}`, html: baseEmail("Care Royal", `<h2 style="font-family:Georgia,serif;color:#14181B">New quote request</h2><p style="color:#57636C"><b>${esc(q.name)}</b> · ${esc(q.phone)} · ${esc(q.email)}<br>${esc(q.services)}${q.frequency ? " · " + esc(q.frequency) : ""}<br>${esc(q.details)}</p>${btn(APP_URL + "/agency/", "Open your pipeline")}`) }).catch(() => {});
+});
+
+// New caregiver application → acknowledge applicant + notify agency.
+exports.onCaregiverApplication = onDocumentCreated({ document: "caregiverApplications/{id}", secrets: [GMAIL_SERVICE_ACCOUNT] }, async (event) => {
+  const a = event.data.data(); if (!a) return;
+  const send = transporter();
+  const ag = await agencyContact(a.tenantId);
+  if (a.email) await send({ from: fromFor(ag.name), to: a.email, subject: "We received your application", html: baseEmail(ag.name, `<h2 style="font-family:Georgia,serif;color:#14181B">Thanks for applying, ${esc(a.name) || "there"}</h2><p style="color:#57636C">${esc(ag.name) || "The agency"} received your caregiver application and will review it shortly.</p>`) }).catch(() => {});
+  if (ag.email) await send({ from: fromFor("Care Royal"), to: ag.email, subject: `New caregiver application: ${a.name || ""}`, html: baseEmail("Care Royal", `<h2 style="font-family:Georgia,serif;color:#14181B">New caregiver application</h2><p style="color:#57636C"><b>${esc(a.name)}</b> · ${esc(a.phone)} · ${esc(a.email)}<br>${esc(a.credentials)} · ${esc(a.experience)}</p>${btn(APP_URL + "/agency/", "Review in Recruiting")}`) }).catch(() => {});
+});
+
+// Booking confirmed (status → scheduled) → notify the family + assigned caregiver.
+exports.onBookingScheduled = onDocumentUpdated({ document: "bookings/{id}", secrets: [GMAIL_SERVICE_ACCOUNT] }, async (event) => {
+  const before = event.data.before.data(); const after = event.data.after.data();
+  if (!after || before.status === after.status || after.status !== "scheduled") return;
+  const send = transporter();
+  const ag = await agencyContact(after.tenantId);
+  const svc = after.serviceId ? await db.doc(`services/${after.serviceId}`).get().catch(() => null) : null;
+  const svcName = svc && svc.exists ? svc.data().name : "your care visit";
+  const when = after.start ? new Date(after.start).toLocaleString() : "the scheduled time";
+  // family
+  try {
+    const hh = after.householdId ? await db.doc(`households/${after.householdId}`).get() : null;
+    const fUid = hh && hh.exists ? hh.data().primaryUserId : "";
+    if (fUid) { const fu = await db.doc(`users/${fUid}`).get(); const fe = fu.exists ? fu.data().email : ""; if (fe) await send({ from: fromFor(ag.name), to: fe, subject: "Your care visit is confirmed", html: baseEmail(ag.name, `<h2 style="font-family:Georgia,serif;color:#14181B">Your visit is confirmed</h2><p style="color:#57636C">${esc(ag.name) || "Your agency"} confirmed <b>${esc(svcName)}</b> for <b>${esc(when)}</b>.</p>${btn(APP_URL + "/family/", "View in your portal")}`) }); }
+  } catch { /* */ }
+  // caregiver
+  try {
+    if (after.caregiverId) { const cu = await db.doc(`users/${after.caregiverId}`).get(); const ce = cu.exists ? cu.data().email : ""; if (ce) await send({ from: fromFor(ag.name), to: ce, subject: "New shift assigned", html: baseEmail(ag.name, `<h2 style="font-family:Georgia,serif;color:#14181B">You have a new shift</h2><p style="color:#57636C"><b>${esc(svcName)}</b> · <b>${esc(when)}</b>.</p>${btn(APP_URL + "/caregiver/", "See your schedule")}`) }); }
+  } catch { /* */ }
+});
+
+// Owner test: send a sample email to confirm Workspace delegation works.
+exports.emailTest = onCall({ secrets: [GMAIL_SERVICE_ACCOUNT] }, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
+  const u = await db.doc(`users/${uid}`).get();
+  const to = (u.exists && u.data().email) || MAIL_SUBJECT;
+  await transporter()({ from: fromFor("Care Royal"), to, subject: "Care Royal email is working", html: baseEmail("Care Royal", `<p style="color:#57636C">This is a test — your Gmail Workspace delegation is set up correctly.</p>`) });
+  return { ok: true, to };
 });
