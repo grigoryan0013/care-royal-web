@@ -578,8 +578,25 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       const enrich = (sw: Row) => { const s = byId(shifts, "shiftId", sw.shiftId) || {}; const b = byId(bookings, "bookingId", s.bookingId) || {}; return { ...sw, start: s.start || "", serviceName: byId(services, "serviceId", b.serviceId)?.name || "", recipientName: byId(recipients, "recipientId", b.recipientId)?.name || "", fromName: byId(users, "userId", sw.fromCaregiverId)?.name || "" }; };
       return { swaps: swaps.filter((sw) => sw.status === "open").map(enrich).sort((a, b) => ((a as Row).start < (b as Row).start ? -1 : 1)) };
     }
-    if (body.action === "post") { const s = byId(shifts, "shiftId", body.shiftId); if (!s || s.caregiverId !== m.uid) return { error: "You can only post your own shift." }; const sw = await create("shiftSwaps", "swapId", { tenantId: T, shiftId: body.shiftId, fromCaregiverId: m.uid, reason: body.reason || "", status: "open", createdAt: now() }); return { ok: true, swap: sw }; }
-    if (body.action === "claim") { const sw = byId(swaps, "swapId", body.swapId); if (!sw || sw.status !== "open") return { error: "That swap is no longer available." }; await update("shifts", sw.shiftId, { caregiverId: m.uid, status: "scheduled" }); await update("bookings", (byId(shifts, "shiftId", sw.shiftId) || {}).bookingId, { caregiverId: m.uid }); await update("shiftSwaps", sw.swapId, { status: "claimed", toCaregiverId: m.uid }); return ok(); }
+    if (body.action === "post") {
+      // Release-to-open-pool model: the poster gives their own shift back to the
+      // open pool (allowed — it's their shift), and it becomes claimable by any
+      // caregiver via the normal open-shift claim. Keeps the shift rules tight
+      // (no cross-caregiver reassignment) while making swaps work.
+      const s = byId(shifts, "shiftId", body.shiftId); if (!s || s.caregiverId !== m.uid) return { error: "You can only post your own shift." };
+      await update("shifts", body.shiftId, { caregiverId: "", status: "open" });
+      if (s.bookingId) await update("bookings", s.bookingId, { caregiverId: "" });
+      const sw = await create("shiftSwaps", "swapId", { tenantId: T, shiftId: body.shiftId, fromCaregiverId: m.uid, reason: body.reason || "", status: "open", createdAt: now() });
+      return { ok: true, swap: sw };
+    }
+    if (body.action === "claim") {
+      const sw = byId(swaps, "swapId", body.swapId); if (!sw || sw.status !== "open") return { error: "That swap is no longer available." };
+      const s = byId(shifts, "shiftId", sw.shiftId); if (!s || s.status !== "open") { await update("shiftSwaps", sw.swapId, { status: "claimed" }); return { error: "That shift is no longer open." }; }
+      await update("shifts", sw.shiftId, { caregiverId: m.uid, status: "scheduled" }); // shift is 'open' → allowed
+      if (s.bookingId) await update("bookings", s.bookingId, { caregiverId: m.uid });
+      await update("shiftSwaps", sw.swapId, { status: "claimed", toCaregiverId: m.uid });
+      return ok();
+    }
     if (body.action === "cancel") { await update("shiftSwaps", body.swapId, { status: "cancelled" }); return ok(); }
   }
 

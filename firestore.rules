@@ -125,10 +125,15 @@ service cloud.firestore {
     }
 
     // ---- bookings: family requests, agency approves, caregiver completes ----
+    // A caregiver may claim a booking into their own name (open-shift claim /
+    // swap pickup); the paired shift rule below is the real gate on which
+    // shifts can be taken (open only, never a colleague's scheduled shift).
     match /bookings/{id} {
       allow read: if sameTenantR();
       allow create: if signedIn() && sameTenantW() && request.resource.data.status == 'requested';
-      allow update: if sameTenantR() && (isAgency() || resource.data.caregiverId == request.auth.uid);
+      allow update: if sameTenantR() && (isAgency()
+                    || resource.data.caregiverId == request.auth.uid
+                    || request.resource.data.caregiverId == request.auth.uid);
     }
 
     // ---- shifts: agency creates; agency, assigned caregiver, or an open shift ----
