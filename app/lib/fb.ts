@@ -11,6 +11,9 @@ import { generate } from "./templates";
 
 type Row = Record<string, any>;
 
+// Care Royal platform super-admins (recognized by login email — no tenant).
+const SUPERADMINS = ["info@thecareroyal.com"];
+
 let _profile: { uid: string; tenantId: string; role: string; name: string; email: string } | null = null;
 export function clearProfileCache() { _profile = null; }
 
@@ -18,6 +21,12 @@ async function me() {
   const u = auth().currentUser;
   if (!u) throw new Error("not signed in");
   if (_profile && _profile.uid === u.uid) return _profile;
+  const email = (u.email || "").toLowerCase();
+  if (SUPERADMINS.includes(email)) {
+    // Platform owner: no tenant; only touches /api/auth and /api/platform.
+    _profile = { uid: u.uid, tenantId: "", role: "platform_owner", name: "Care Royal", email };
+    return _profile;
+  }
   const snap = await getDoc(doc(db(), "users", u.uid));
   const d: Row = snap.exists() ? (snap.data() as Row) : {};
   _profile = {
@@ -146,6 +155,44 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
   const m = await me();
   const T = m.tenantId;
   const logEvent = (text: string) => create("events", "eventId", { tenantId: T, text, actor: m.name || m.email || "", createdAt: now() }).then(() => undefined).catch(() => undefined);
+
+  // ---- Platform super-admin: approve/suspend agencies (no tenant scope) ------
+  // Care Royal (the platform owner) reviews every new agency here. Access is
+  // enforced both by this email check and by firestore.rules.
+  if (p === "/api/platform") {
+    if (m.role !== "platform_owner") return { error: "Not authorized." };
+    if (method === "GET") {
+      const snap = await getDocs(collection(db(), "tenants"));
+      const tenants = snap.docs
+        .map((d) => {
+          const t = d.data() as Row;
+          return {
+            tenantId: d.id, name: t.brandName || t.name || "(unnamed)",
+            plan: t.plan || "trial", status: t.status || "active", city: t.city || "",
+            ownerEmail: t.ownerEmail || "", ownerName: t.ownerName || "",
+            createdAt: t.createdAt || "",
+          };
+        })
+        .sort((a, b) => {
+          const rank = (s: string) => (s === "pending" ? 0 : s === "suspended" ? 1 : 2);
+          if (rank(a.status) !== rank(b.status)) return rank(a.status) - rank(b.status);
+          return a.createdAt < b.createdAt ? 1 : -1;
+        });
+      return { tenants };
+    }
+    const tid = String(body.tenantId || "");
+    if (!tid) return { error: "Missing tenantId." };
+    if (body.action === "approve") {
+      await update("tenants", tid, { status: "active", approvedAt: now() });
+      // Congratulate the agency owner (best-effort; email fn no-ops if unset).
+      sendEmail({ type: "agency_approved", to: String(body.ownerEmail || ""), agencyName: String(body.agencyName || "") });
+      return ok();
+    }
+    if (body.action === "suspend") { await update("tenants", tid, { status: "suspended" }); return ok(); }
+    if (body.action === "reactivate") { await update("tenants", tid, { status: "active" }); return ok(); }
+    if (body.action === "reject") { await update("tenants", tid, { status: "rejected" }); return ok(); }
+    return { error: "Unknown action." };
+  }
 
   // ---- agency recruiting inbox (caregiver applications)
   if (p === "/api/applications") {

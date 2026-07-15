@@ -19,7 +19,7 @@
 //   type "custom"      { to, subject, html, agencyName? }
 
 const MAIL_SUBJECT = "info@thecareroyal.com"; // Workspace user the SA impersonates
-const APP_URL = "https://thecareroyal.com";
+const APP_URL = "https://thecareroyal.com/app"; // SaaS is mounted under /app
 
 /* ---------- tiny helpers (Workers runtime: no Buffer, no Node) ---------- */
 const esc = (s) =>
@@ -261,6 +261,25 @@ function composeMessages(body) {
             btn(APP_URL + "/caregiver/", "See your schedule")
         ),
       });
+    return msgs;
+  }
+
+  if (type === "agency_approved") {
+    if (!body.to) return msgs;
+    const ag = esc(body.agencyName) || "your agency";
+    msgs.push({
+      from: fromFor("Care Royal"),
+      to: body.to,
+      subject: "You're approved — welcome to Care Royal",
+      html: baseEmail(
+        "Care Royal",
+        H("You're approved") +
+          P(`Great news — <b>${ag}</b> has been approved on Care Royal. Your agency portal is now live and ready to set up.`) +
+          btn(APP_URL + "/login/", "Sign in to your portal") +
+          P(`<span style="color:${MUTED};font-size:13px">Questions? Reach us at info@thecareroyal.com.</span>`),
+        "Your Care Royal agency account is approved."
+      ),
+    });
     return msgs;
   }
 

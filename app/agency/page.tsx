@@ -9,7 +9,7 @@ import { BarChart, Donut } from "../../components/Charts";
 import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
 import { AiPanel, BillingPanel, GrowthPanel, BenchmarkPanel, PayoutsPanel, BackgroundCheck } from "../../components/AdvancedPanels";
-import { apiGet, apiPost } from "../lib/session";
+import { apiGet, apiPost, signOutUser } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -55,7 +55,7 @@ interface Recipient { recipientId: string; name: string; type: string; condition
 interface Client { householdId: string; name: string; city: string; recipients: Recipient[]; primaryCaregiverId?: string }
 interface Booking { bookingId: string; status: string; start: string; end?: string; serviceName: string; recipientName: string; householdName: string; credential: string; notes: string; caregiverId: string }
 interface Shift { shiftId: string; status: string; start: string; caregiverId: string; serviceName: string; recipientName: string; householdName: string; caregiverName: string; clockIn: string; clockOut: string; notes: string }
-interface Tenant { name: string; plan: string; joinCode: string }
+interface Tenant { name: string; plan: string; joinCode: string; status?: string }
 
 export default function AgencyPortal() {
   const [active, setActive] = useState("dashboard");
@@ -70,6 +70,7 @@ export default function AgencyPortal() {
   const [leadCounts, setLeadCounts] = useState<Record<string, number>>({});
   const [quoteReqs, setQuoteReqs] = useState(0);
   const [msg, setMsg] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [s, a, b, sh, inv, t, ld, qr] = await Promise.all([
@@ -91,6 +92,7 @@ export default function AgencyPortal() {
     setTenant(t.tenant || null);
     setLeadCount(ld.grandTotal || 0);
     setLeadCounts(ld.counts || {});
+    setLoaded(true);
   }, []);
   useEffect(() => { load(); }, [load]);
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(""), 3000); }
@@ -102,6 +104,38 @@ export default function AgencyPortal() {
     ...pending.map((b) => ({ text: `Booking request: ${b.serviceName}`, sub: `${b.recipientName} · ${b.householdName}`, tone: "gold" as const })),
     ...unassigned.map((s) => ({ text: `Unassigned shift: ${s.serviceName}`, sub: s.start ? fmtDate(s.start) : "", tone: "brand" as const })),
   ].slice(0, 12);
+
+  // Waitlist gate: a new agency stays "pending" until the Care Royal platform
+  // owner approves it (or "suspended" if paused). Block the portal until then.
+  if (loaded && tenant && tenant.status && tenant.status !== "active" && tenant.status !== "trial") {
+    const suspended = tenant.status === "suspended";
+    return (
+      <div className="app-bg flex min-h-screen items-center justify-center px-4">
+        <div className="card max-w-lg text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-brand/10 text-brand">
+            <Icon name={suspended ? "clock" : "clock"} />
+          </div>
+          <h1 className="font-serif text-2xl text-ink">
+            {suspended ? "Your account is paused" : "Your account is under review"}
+          </h1>
+          <p className="mt-3 text-sm text-ink-light">
+            {suspended
+              ? `${tenant.name || "Your agency"} is currently paused. Please contact Care Royal to reactivate your account.`
+              : `Thanks for signing up, ${tenant.name || "there"}. Your agency is being reviewed by the Care Royal team — we'll email you at your signup address as soon as it's approved, usually within one business day.`}
+          </p>
+          <p className="mt-4 text-xs text-ink-light">
+            Need help? <a className="text-brand" href="mailto:info@thecareroyal.com">info@thecareroyal.com</a>
+          </p>
+          <button
+            className="btn-ghost mt-6"
+            onClick={() => { void signOutUser(); window.location.href = "/login/"; }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <PortalShell title="Agency console" allow={["agency_admin", "agency_coord"]} nav={nav} active={active} onNav={setActive} notifications={notifications}>

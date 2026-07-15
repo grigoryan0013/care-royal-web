@@ -10,7 +10,9 @@ import { fbHandle, clearProfileCache } from "./fb";
 import { DEFAULT_SERVICES } from "./catalog";
 import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle } from "./demo";
 
-export type Role = "agency_admin" | "agency_coord" | "caregiver" | "family";
+export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "caregiver" | "family";
+// Care Royal platform super-admins (recognized by login email — no tenant).
+export const SUPERADMIN_EMAILS = ["info@thecareroyal.com"];
 export type SignupRole = "agency" | "family" | "caregiver";
 export interface SessionUser {
   userId: string;
@@ -81,13 +83,21 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   clearProfileCache();
   try { if (name) await updateProfile(cred.user, { displayName: name }); } catch { /* non-fatal */ }
 
+  // Platform super-admin: no tenant, no users doc — recognized by email everywhere.
+  // (If the account already exists, they just sign in instead.)
+  if (SUPERADMIN_EMAILS.includes(email.toLowerCase())) {
+    return { userId: uid, tenantId: "", email, role: "platform_owner", name: name || "Care Royal" };
+  }
+
   if (input.role === "agency") {
     const tRef = doc(collection(D, "tenants"));
     const tenantId = tRef.id;
     const code = genCode();
     const agencyName = (input.agencyName || name || "My Agency").trim();
     const batch = writeBatch(D);
-    batch.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "active", joinCode: code, ownerUid: uid, createdAt: now() });
+    // New agencies are WAITLISTED: status "pending" until the Care Royal platform
+    // owner approves them. The agency portal shows a review screen until then.
+    batch.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "pending", joinCode: code, ownerUid: uid, ownerEmail: email, ownerName: name, createdAt: now() });
     // notifyEmail lets the public quote/apply forms route the agency's
     // new-request notification (this stack has no server-side Firestore).
     batch.set(doc(D, "joinCodes", code), { tenantId, agencyName, notifyEmail: email, createdAt: now() });
@@ -148,6 +158,7 @@ export async function publicPost(path: string, body: Record<string, unknown>) {
 }
 
 export function homeForRole(role: Role): string {
+  if (role === "platform_owner") return "/admin/";
   if (role === "caregiver") return "/caregiver/";
   if (role === "family") return "/family/";
   return "/agency/";

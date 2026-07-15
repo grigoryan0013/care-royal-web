@@ -8,6 +8,8 @@ service cloud.firestore {
     function myTenant() { return myDoc().tenantId; }
     function myRole() { return myDoc().role; }
     function isAgency() { return signedIn() && (myRole() == 'agency_admin' || myRole() == 'agency_coord'); }
+    // Care Royal platform super-admin, recognized by login email (no tenant/users doc).
+    function isSuper() { return signedIn() && request.auth.token.email == 'info@thecareroyal.com'; }
     // resource (existing doc) / request.resource (incoming) belong to my tenant
     function sameTenantR() { return signedIn() && resource.data.tenantId == myTenant(); }
     function sameTenantW() { return signedIn() && request.resource.data.tenantId == myTenant(); }
@@ -64,9 +66,12 @@ service cloud.firestore {
 
     // ---- tenants ----
     match /tenants/{tid} {
-      allow read: if signedIn() && myTenant() == tid;
+      // isSuper() first so the || short-circuits before myTenant() (which would
+      // error for a super-admin, who has no users/{uid} doc). Super-admin also
+      // needs list access for the approval console.
+      allow read: if isSuper() || (signedIn() && myTenant() == tid);
       allow create: if signedIn();      // first admin creates their tenant (setup)
-      allow update: if isAgency() && myTenant() == tid;
+      allow update: if isSuper() || (isAgency() && myTenant() == tid);
       allow delete: if false;
     }
 
