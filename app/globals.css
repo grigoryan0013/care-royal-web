@@ -13,25 +13,68 @@ html, body {
   color: theme("colors.ink");
   font-family: theme("fontFamily.sans");
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
+/* Subtle app backdrop used behind portals */
+.app-bg {
+  background:
+    radial-gradient(1200px 500px at 100% -10%, rgba(75, 57, 239, 0.06), transparent 60%),
+    radial-gradient(900px 400px at -10% 110%, rgba(57, 210, 192, 0.07), transparent 60%),
+    theme("colors.paper");
+}
+
+/* Brand hero gradient (auth + marketing panels) */
+.hero-gradient {
+  background:
+    radial-gradient(900px 500px at 15% -20%, rgba(103, 58, 183, 0.55), transparent 60%),
+    radial-gradient(700px 500px at 100% 120%, rgba(57, 210, 192, 0.35), transparent 55%),
+    linear-gradient(135deg, #0D0459 0%, #4B39EF 100%);
+}
+
+::selection { background: theme("colors.brand-light"); color: theme("colors.brand-dark"); }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold transition;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60;
   }
-  .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brand-dark;
-  }
-  .btn-ghost {
-    @apply btn border border-rule-dark text-ink-soft hover:bg-brand-light;
-  }
+  .btn-primary { @apply btn bg-brand text-white shadow-brand hover:bg-brand-dark active:translate-y-px; }
+  .btn-ghost { @apply btn border border-rule-dark bg-white text-ink-soft hover:border-brand hover:text-brand; }
+  .btn-soft { @apply btn bg-brand-light text-brand hover:bg-brand hover:text-white; }
+  .btn-danger { @apply btn bg-danger/10 text-danger hover:bg-danger hover:text-white; }
+  .btn-sm { @apply !px-3 !py-1.5 !text-xs; }
+  .btn-lg { @apply !px-6 !py-3 !text-base; }
+
   .field {
-    @apply w-full rounded-lg border border-rule-dark bg-white px-3.5 py-2.5 text-sm text-ink outline-none focus:border-brand;
+    @apply w-full rounded-lg border border-rule-dark bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-ink-light focus:border-brand focus:ring-4 focus:ring-brand/10;
   }
-  .label {
-    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-mid;
-  }
-  .card {
-    @apply rounded-xl2 border border-rule bg-white p-6 shadow-sm;
-  }
+  .field-sm { @apply !py-1.5 !text-xs; }
+  .label { @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-mid; }
+  .hint { @apply mt-1 text-xs text-ink-light; }
+
+  .card { @apply rounded-xl2 border border-rule bg-white p-6 shadow-card; }
+  .card-sm { @apply rounded-xl border border-rule bg-white p-4 shadow-card; }
+  .card-hover { @apply transition hover:border-brand/40 hover:shadow-pop; }
+
+  /* Status pills */
+  .badge { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize; }
+  .badge-brand { @apply badge bg-brand-light text-brand; }
+  .badge-gold { @apply badge bg-gold/15 text-gold-dark; }
+  .badge-ok { @apply badge bg-ok/10 text-ok; }
+  .badge-warn { @apply badge bg-gold/20 text-gold-dark; }
+  .badge-danger { @apply badge bg-danger/10 text-danger; }
+  .badge-muted { @apply badge bg-paper text-ink-mid; }
+
+  /* Segmented control / filter chips */
+  .chip { @apply rounded-lg px-3 py-1.5 text-xs font-semibold transition; }
+  .chip-on { @apply chip bg-brand text-white shadow-sm; }
+  .chip-off { @apply chip bg-brand-light text-brand hover:bg-brand/15; }
+
+  .stat-dot { @apply inline-block h-2.5 w-2.5 shrink-0 rounded-full; }
+  .divide-rule > * + * { border-top: 1px solid theme("colors.rule"); }
 }
+
+/* Refined scrollbars */
+* { scrollbar-width: thin; scrollbar-color: theme("colors.rule-dark") transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: theme("colors.rule-dark"); border-radius: 999px; border: 3px solid theme("colors.paper"); }

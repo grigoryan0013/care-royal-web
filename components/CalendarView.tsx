@@ -2,6 +2,7 @@
 import { useState } from "react";
 
 export interface CalEvent {
+  id?: string;
   date: string;   // ISO datetime
   label: string;
   sub?: string;
@@ -9,14 +10,14 @@ export interface CalEvent {
 }
 
 const toneClass: Record<string, string> = {
-  brand: "bg-brand-light text-brand",
-  gold: "bg-gold/20 text-gold-dark",
-  ok: "bg-ok/15 text-ok",
-  danger: "bg-danger/15 text-danger",
+  brand: "bg-brand-light text-brand hover:bg-brand/15",
+  gold: "bg-gold/20 text-gold-dark hover:bg-gold/30",
+  ok: "bg-ok/15 text-ok hover:bg-ok/25",
+  danger: "bg-danger/15 text-danger hover:bg-danger/25",
 };
 
-// Simple in-app month calendar. Events are plotted on their day.
-export default function CalendarView({ events }: { events: CalEvent[] }) {
+// In-app month calendar. Events plot on their day; clicking one calls onSelect.
+export default function CalendarView({ events, onSelect }: { events: CalEvent[]; onSelect?: (id: string) => void }) {
   const [cursor, setCursor] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
 
   const year = cursor.getFullYear();
@@ -32,6 +33,7 @@ export default function CalendarView({ events }: { events: CalEvent[] }) {
     const d = new Date(e.date);
     if (d.getFullYear() === year && d.getMonth() === month) (byDay[d.getDate()] ||= []).push(e);
   }
+  for (const k in byDay) byDay[k].sort((a, b) => a.date.localeCompare(b.date));
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < startDay; i++) cells.push(null);
@@ -45,9 +47,9 @@ export default function CalendarView({ events }: { events: CalEvent[] }) {
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-serif text-xl text-ink">{monthLabel}</h3>
         <div className="flex gap-2">
-          <button onClick={() => setCursor(new Date(year, month - 1, 1))} className="btn-ghost !px-3 !py-1.5 text-sm">Prev</button>
-          <button onClick={() => setCursor(new Date())} className="btn-ghost !px-3 !py-1.5 text-sm">Today</button>
-          <button onClick={() => setCursor(new Date(year, month + 1, 1))} className="btn-ghost !px-3 !py-1.5 text-sm">Next</button>
+          <button onClick={() => setCursor(new Date(year, month - 1, 1))} className="btn-ghost btn-sm">Prev</button>
+          <button onClick={() => setCursor(new Date())} className="btn-ghost btn-sm">Today</button>
+          <button onClick={() => setCursor(new Date(year, month + 1, 1))} className="btn-ghost btn-sm">Next</button>
         </div>
       </div>
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg bg-rule text-xs">
@@ -57,15 +59,21 @@ export default function CalendarView({ events }: { events: CalEvent[] }) {
         {cells.map((d, i) => {
           const isToday = d != null && new Date(year, month, d).toDateString() === todayKey;
           return (
-            <div key={i} className={`min-h-[92px] bg-white p-1.5 ${d == null ? "opacity-40" : ""}`}>
+            <div key={i} className={`min-h-[96px] bg-white p-1.5 ${d == null ? "opacity-40" : ""}`}>
               {d != null && (
                 <>
                   <div className={`mb-1 text-right text-[11px] ${isToday ? "font-bold text-brand" : "text-ink-light"}`}>{d}</div>
                   <div className="space-y-1">
                     {(byDay[d] || []).slice(0, 3).map((e, j) => (
-                      <div key={j} className={`truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${toneClass[e.tone || "brand"]}`} title={`${e.label}${e.sub ? " — " + e.sub : ""}`}>
+                      <button
+                        key={j}
+                        onClick={() => e.id && onSelect?.(e.id)}
+                        disabled={!e.id || !onSelect}
+                        className={`block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium transition ${toneClass[e.tone || "brand"]} ${e.id && onSelect ? "cursor-pointer" : "cursor-default"}`}
+                        title={`${e.label}${e.sub ? " — " + e.sub : ""}`}
+                      >
                         {new Date(e.date).toLocaleTimeString([], { hour: "numeric" })} {e.label}
-                      </div>
+                      </button>
                     ))}
                     {(byDay[d] || []).length > 3 && <div className="px-1 text-[10px] text-ink-light">+{(byDay[d] || []).length - 3} more</div>}
                   </div>

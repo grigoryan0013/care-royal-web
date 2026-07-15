@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { hasDemoSession, setDemoRole, disableDemo } from "../lib/demo";
-import { listOrgs, createOrg, setOrgStatus, type Org } from "../lib/orgs";
+import { listOrgs, createOrg, setOrgStatus, mrr, PLAN_PRICE, type Org } from "../lib/orgs";
+import { BarChart } from "../../components/Charts";
 
 const PLANS = ["Starter", "Pro", "Enterprise"];
 
@@ -13,7 +14,7 @@ export default function OwnerConsole() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [plan, setPlan] = useState("Pro");
-  const [flash, setFlash] = useState<string>("");
+  const [flash, setFlash] = useState("");
 
   useEffect(() => {
     if (!hasDemoSession()) { router.replace("/login/"); return; }
@@ -21,7 +22,6 @@ export default function OwnerConsole() {
   }, [router]);
 
   function refresh() { setOrgs(listOrgs()); }
-
   function provision(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
@@ -30,84 +30,82 @@ export default function OwnerConsole() {
     setFlash(`Workspace "${org.name}" created. Admin login issued to ${org.adminEmail}.`);
     refresh();
   }
-
-  function openWorkspace() {
-    setDemoRole("agency_admin");
-    router.push("/agency/");
-  }
-
-  function toggle(o: Org) {
-    setOrgStatus(o.id, o.status === "active" ? "suspended" : "active");
-    refresh();
-  }
+  function openWorkspace() { setDemoRole("agency_admin"); router.push("/agency/"); }
+  function toggle(o: Org) { setOrgStatus(o.id, o.status === "active" ? "suspended" : "active"); refresh(); }
 
   const active = orgs.filter((o) => o.status === "active").length;
+  const monthly = mrr(orgs);
+  const planBars = PLANS.map((p) => ({ label: p, value: orgs.filter((o) => o.status === "active" && o.plan === p).length, tone: p === "Enterprise" ? "purple" : p === "Pro" ? "brand" : "gold" }));
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-12">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="font-serif text-3xl text-brand">Care Royal — Owner</h1>
-          <p className="mt-1 text-sm text-ink-light">The platform. Provision organizations, issue their admin login, and open any workspace.</p>
-        </div>
-        <button onClick={() => { disableDemo(); router.replace("/"); }} className="text-xs font-semibold text-ink-light hover:text-danger">Exit</button>
-      </div>
-
-      {/* summary */}
-      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <div className="card"><div className="font-serif text-3xl text-brand">{orgs.length}</div><div className="text-xs text-ink-light">Organizations</div></div>
-        <div className="card"><div className="font-serif text-3xl text-brand">{active}</div><div className="text-xs text-ink-light">Active</div></div>
-        <div className="card"><div className="font-serif text-3xl text-brand">{orgs.length - active}</div><div className="text-xs text-ink-light">Suspended</div></div>
-      </div>
-
-      {/* provision a new organization */}
-      <div className="card mb-8">
-        <h2 className="font-serif text-xl text-ink">Provision an organization</h2>
-        <p className="mt-1 text-sm text-ink-mid">Create a workspace for a business and issue its admin login. Only you can do this.</p>
-        <form onSubmit={provision} className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Business name" className="rounded-xl2 border border-rule px-3 py-2 text-sm" />
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Admin email" className="rounded-xl2 border border-rule px-3 py-2 text-sm" />
-          <div className="flex gap-2">
-            <select value={plan} onChange={(e) => setPlan(e.target.value)} className="rounded-xl2 border border-rule px-3 py-2 text-sm">
-              {PLANS.map((p) => <option key={p}>{p}</option>)}
-            </select>
-            <button type="submit" className="whitespace-nowrap rounded-xl2 bg-brand px-4 py-2 text-sm font-semibold text-white hover:opacity-90">Create</button>
+    <main className="app-bg min-h-screen">
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand font-serif text-xl font-semibold text-white">C</span>
+            <div>
+              <h1 className="font-serif text-2xl text-ink">Care Royal — Owner</h1>
+              <p className="text-sm text-ink-light">Provision agencies, track revenue, open any workspace.</p>
+            </div>
           </div>
-        </form>
-        {flash && <p className="mt-3 rounded-xl2 border border-brand/25 bg-brand/5 px-3 py-2 text-sm text-ink-mid">{flash}</p>}
-      </div>
+          <button onClick={() => { disableDemo(); router.replace("/"); }} className="text-xs font-semibold text-ink-light hover:text-danger">Exit</button>
+        </div>
 
-      {/* organizations list */}
-      <h2 className="mb-3 font-serif text-xl text-ink">Organizations</h2>
-      <div className="overflow-x-auto rounded-xl2 border border-rule">
-        <table className="w-full min-w-[560px] text-left text-sm">
-          <thead className="bg-brand-light text-xs uppercase tracking-wide text-ink-mid">
-            <tr><th className="px-4 py-3">Organization</th><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Plan</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr>
-          </thead>
-          <tbody>
-            {orgs.map((o) => (
-              <tr key={o.id} className="border-t border-rule">
-                <td className="px-4 py-3 font-semibold text-ink">{o.name}</td>
-                <td className="px-4 py-3 text-ink-mid">{o.adminEmail}</td>
-                <td className="px-4 py-3 text-ink-mid">{o.plan}</td>
-                <td className="px-4 py-3">
-                  <span className={"rounded-full px-2.5 py-1 text-xs font-semibold " + (o.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{o.status}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex justify-end gap-3">
-                    <button onClick={openWorkspace} className="text-sm font-semibold text-brand hover:underline">Open workspace →</button>
-                    <button onClick={() => toggle(o)} className="text-sm font-semibold text-ink-light hover:text-danger">{o.status === "active" ? "Suspend" : "Activate"}</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        {/* KPIs */}
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="card"><div className="font-serif text-3xl text-brand">{orgs.length}</div><div className="text-xs text-ink-light">Agencies</div></div>
+          <div className="card"><div className="font-serif text-3xl text-ok">{active}</div><div className="text-xs text-ink-light">Active</div></div>
+          <div className="card"><div className="font-serif text-3xl text-brand">${monthly.toLocaleString()}</div><div className="text-xs text-ink-light">MRR</div></div>
+          <div className="card"><div className="font-serif text-3xl text-gold-dark">${(monthly * 12).toLocaleString()}</div><div className="text-xs text-ink-light">ARR (run-rate)</div></div>
+        </div>
 
-      <p className="mt-6 text-center text-xs text-ink-light">
-        <Link href="/demo/" className="font-semibold text-brand">Back to portals</Link>
-      </p>
+        <div className="mb-6 grid gap-5 lg:grid-cols-2">
+          <div className="card"><h3 className="mb-4 font-serif text-lg text-ink">Active agencies by plan</h3><BarChart data={planBars} /></div>
+          <div className="card">
+            <h3 className="font-serif text-lg text-ink">Provision an agency</h3>
+            <p className="mt-1 text-sm text-ink-mid">Create a workspace and issue its admin login. Only you can do this.</p>
+            <form onSubmit={provision} className="mt-4 space-y-3">
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Agency name" className="field" />
+              <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Admin email" className="field" />
+              <div className="flex gap-2">
+                <select value={plan} onChange={(e) => setPlan(e.target.value)} className="field">
+                  {PLANS.map((p) => <option key={p} value={p}>{p} — ${PLAN_PRICE[p]}/mo</option>)}
+                </select>
+                <button type="submit" className="btn-primary whitespace-nowrap">Create</button>
+              </div>
+            </form>
+            {flash && <p className="mt-3 rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{flash}</p>}
+          </div>
+        </div>
+
+        <h2 className="mb-3 font-serif text-xl text-ink">Agencies</h2>
+        <div className="overflow-x-auto rounded-xl2 border border-rule bg-white shadow-card">
+          <table className="w-full min-w-[620px] text-left text-sm">
+            <thead className="bg-paper text-xs uppercase tracking-wide text-ink-light">
+              <tr><th className="px-4 py-3">Agency</th><th className="px-4 py-3">Admin</th><th className="px-4 py-3">Plan</th><th className="px-4 py-3">MRR</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr>
+            </thead>
+            <tbody>
+              {orgs.map((o) => (
+                <tr key={o.id} className="border-t border-rule">
+                  <td className="px-4 py-3 font-semibold text-ink">{o.name}</td>
+                  <td className="px-4 py-3 text-ink-mid">{o.adminEmail}</td>
+                  <td className="px-4 py-3 text-ink-mid">{o.plan}</td>
+                  <td className="px-4 py-3 text-ink-mid">{o.status === "active" ? `$${(PLAN_PRICE[o.plan] || 0).toLocaleString()}` : "—"}</td>
+                  <td className="px-4 py-3"><span className={o.status === "active" ? "badge-ok" : "badge-warn"}>{o.status}</span></td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-3">
+                      <button onClick={openWorkspace} className="text-sm font-semibold text-brand hover:underline">Open</button>
+                      <button onClick={() => toggle(o)} className="text-sm font-semibold text-ink-light hover:text-danger">{o.status === "active" ? "Suspend" : "Activate"}</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="mt-6 text-center text-xs text-ink-light"><Link href="/demo/" className="font-semibold text-brand">Back to portals</Link></p>
+      </div>
     </main>
   );
 }

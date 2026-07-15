@@ -1,0 +1,12 @@
+{
+  "name": "care-royal-functions",
+  "description": "Care Royal payments — Stripe Connect via Firebase Cloud Functions",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.0",
+    "stripe": "^17.3.0"
+  },
+  "private": true
+}

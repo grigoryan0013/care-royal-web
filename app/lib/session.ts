@@ -1,11 +1,17 @@
 // Session + API helpers. Real mode = Firebase Auth + Firestore (client-side).
 // Demo mode (grigoryan/201816) = in-browser mock, still available for testing.
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebase";
+import {
+  signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  updateProfile, signOut, onAuthStateChanged,
+} from "firebase/auth";
+import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import { fbHandle, clearProfileCache } from "./fb";
+import { DEFAULT_SERVICES } from "./catalog";
 import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle } from "./demo";
 
 export type Role = "agency_admin" | "agency_coord" | "caregiver" | "family";
+export type SignupRole = "agency" | "family" | "caregiver";
 export interface SessionUser {
   userId: string;
   tenantId: string;
@@ -43,6 +49,75 @@ export async function signIn(email: string, password: string): Promise<SessionUs
   clearProfileCache();
   const d = await fbHandle("GET", "/api/auth");
   return d.user as SessionUser;
+}
+
+const now = () => new Date().toISOString();
+function genCode() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/1/I/L
+  let c = "";
+  for (let i = 0; i < 6; i++) c += chars[Math.floor(Math.random() * chars.length)];
+  return c;
+}
+
+export interface SignupInput {
+  role: SignupRole;
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  agencyName?: string;  // role === "agency"
+  joinCode?: string;    // role === "family" | "caregiver"
+}
+
+// Create a real account and provision the right Firestore records.
+// Agency  -> new tenant + join code + full service catalog, role agency_admin.
+// Family/Caregiver -> join an existing agency by code, minimal profile.
+export async function signUp(input: SignupInput): Promise<SessionUser> {
+  const email = input.email.trim();
+  const name = input.name.trim();
+  const cred = await createUserWithEmailAndPassword(auth(), email, input.password);
+  const uid = cred.user.uid;
+  const D = db();
+  clearProfileCache();
+  try { if (name) await updateProfile(cred.user, { displayName: name }); } catch { /* non-fatal */ }
+
+  if (input.role === "agency") {
+    const tRef = doc(collection(D, "tenants"));
+    const tenantId = tRef.id;
+    const code = genCode();
+    const agencyName = (input.agencyName || name || "My Agency").trim();
+    const batch = writeBatch(D);
+    batch.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "active", joinCode: code, ownerUid: uid, createdAt: now() });
+    batch.set(doc(D, "joinCodes", code), { tenantId, agencyName, createdAt: now() });
+    batch.set(doc(D, "users", uid), { userId: uid, tenantId, role: "agency_admin", name, email, phone: input.phone || "", createdAt: now() });
+    for (const s of DEFAULT_SERVICES) {
+      batch.set(doc(collection(D, "services")), {
+        tenantId, category: s.category, name: s.name, profileType: s.profileType,
+        pricingModel: s.pricingModel, rate: "", credential: s.credential,
+        durationMin: String(s.durationMin), active: "true",
+      });
+    }
+    await batch.commit();
+    return { userId: uid, tenantId, email, role: "agency_admin", name };
+  }
+
+  // family / caregiver: resolve their agency by join code
+  const code = (input.joinCode || "").trim().toUpperCase();
+  const jc = await getDoc(doc(D, "joinCodes", code));
+  if (!jc.exists()) {
+    // roll back the just-created auth user so they can retry cleanly
+    try { await cred.user.delete(); } catch { /* ignore */ }
+    throw new Error("That agency code wasn't found. Ask your care agency for their Care Royal code.");
+  }
+  const tenantId = (jc.data() as { tenantId: string }).tenantId;
+  const role: Role = input.role === "family" ? "family" : "caregiver";
+  await setDoc(doc(D, "users", uid), { userId: uid, tenantId, role, name, email, phone: input.phone || "", createdAt: now() });
+  if (role === "family") {
+    await setDoc(doc(collection(D, "households")), { tenantId, primaryUserId: uid, name: name ? `${name}'s household` : "My household", address: "", city: "", zip: "", createdAt: now() });
+  } else {
+    await setDoc(doc(collection(D, "caregiverProfiles")), { tenantId, userId: uid, credentials: "", rate: "", bio: "", createdAt: now() });
+  }
+  return { userId: uid, tenantId, email, role, name };
 }
 
 export function signOutUser() {

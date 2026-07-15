@@ -4,14 +4,15 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
+import { getFunctions, type Functions } from "firebase/functions";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB2jej0URT6T8vnc0PNpm8rxoHhn9-1Zv0",
+  apiKey: "AIzaSyCQuvAI5TBtkyW_SIK2PKpengsmrtMIFdY",
   authDomain: "care-royale2-4dgwu0.firebaseapp.com",
   projectId: "care-royale2-4dgwu0",
   storageBucket: "care-royale2-4dgwu0.firebasestorage.app",
-  messagingSenderId: "417456936041",
-  appId: "1:417456936041:web:434d19d2399173b6dc57c6",
+  messagingSenderId: "932380140979",
+  appId: "1:932380140979:web:434d19d2399173b6dc57c6",
 };
 
 let _app: FirebaseApp | null = null;
@@ -24,4 +25,8 @@ export function auth(): Auth {
 }
 export function db(): Firestore {
   return getFirestore(app());
+}
+// Cloud Functions (payments). Inert until the cloud-functions/ are deployed.
+export function functions(): Functions {
+  return getFunctions(app());
 }

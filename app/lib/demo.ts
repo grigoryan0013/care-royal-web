@@ -173,6 +173,9 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   // ---- auth
   if (p === "/api/auth" && method === "GET") return { user: me };
 
+  // ---- tenant
+  if (p === "/api/tenant" && method === "GET") return { tenant: { tenantId: IDS.tenant, name: db.Tenant.name || "Care Royal", plan: db.Tenant.plan || "demo", joinCode: "DEMO24", status: "active" } };
+
   // ---- services
   if (p === "/api/services" && method === "GET") return { services: db.Services };
   if (p === "/api/services" && method === "POST") {
@@ -205,16 +208,31 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     return { bookings: enriched };
   }
   if (p === "/api/bookings" && method === "POST") {
-    if (body.action === "create") { const hh = myHouseholds()[0]; const b = { bookingId: id("bk"), tenantId: IDS.tenant, householdId: hh.householdId, recipientId: String(body.recipientId), serviceId: String(body.serviceId), requestedBy: me.userId, status: "requested", start: String(body.start), end: "", recurrence: "none", caregiverId: "", notes: String(body.notes || ""), createdAt: now() }; db.Bookings.push(b); write(db); return { ok: true }; }
-    if (body.action === "approve") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) { b.status = "scheduled"; b.caregiverId = String(body.caregiverId || ""); db.Shifts.push({ shiftId: id("sh"), tenantId: IDS.tenant, bookingId: b.bookingId, caregiverId: b.caregiverId, start: b.start, end: "", status: b.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" }); } write(db); return ok(); }
+    if (body.action === "create") { const hh = myHouseholds()[0]; const recurrence = body.recurrence === "weekly" ? "weekly" : "none"; const occurrences = recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(String(body.occurrences || 4)) || 4)) : 1; const b = { bookingId: id("bk"), tenantId: IDS.tenant, householdId: hh.householdId, recipientId: String(body.recipientId), serviceId: String(body.serviceId), requestedBy: me.userId, status: "requested", start: String(body.start), end: "", recurrence, occurrences: String(occurrences), caregiverId: "", notes: String(body.notes || ""), createdAt: now() }; db.Bookings.push(b); write(db); return { ok: true }; }
+    if (body.action === "approve") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) { b.status = "scheduled"; b.caregiverId = String(body.caregiverId || ""); const occ = b.recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(b.occurrences || "1") || 1)) : 1; const base = b.start ? new Date(b.start) : null; for (let i = 0; i < occ; i++) { const start = base ? new Date(base.getTime() + i * 7 * 864e5).toISOString() : b.start; db.Shifts.push({ shiftId: id("sh"), tenantId: IDS.tenant, bookingId: b.bookingId, caregiverId: b.caregiverId, start, end: "", status: b.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" }); } } write(db); return ok(); }
     if (body.action === "decline") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) b.status = "declined"; write(db); return ok(); }
+    if (body.action === "assign") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) b.caregiverId = String(body.caregiverId || ""); const sh = db.Shifts.find((s) => s.bookingId === body.bookingId); if (sh) { sh.caregiverId = String(body.caregiverId || ""); sh.status = body.caregiverId ? "scheduled" : "open"; } write(db); return ok(); }
+    if (body.action === "reschedule") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) { b.start = String(body.start || ""); b.end = String(body.end || ""); } const sh = db.Shifts.find((s) => s.bookingId === body.bookingId); if (sh) { sh.start = String(body.start || ""); sh.end = String(body.end || ""); } write(db); return ok(); }
+    if (body.action === "cancel") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) b.status = "cancelled"; const sh = db.Shifts.find((s) => s.bookingId === body.bookingId); if (sh) sh.status = "cancelled"; write(db); return ok(); }
   }
 
   // ---- agency aggregate
   if (p === "/api/agency" && method === "GET") {
     const clients = db.Households.map((h) => ({ ...h, recipients: db.Recipients.filter((r) => r.householdId === h.householdId) }));
-    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => ({ userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: db.CaregiverProfiles.find((c) => c.userId === u.userId)?.credentials || "", status: "active" }));
+    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", availability: pr?.availability || "", status: "active" }; });
     return { clients, caregivers };
+  }
+  if (p === "/api/agency" && method === "POST") {
+    if (body.action === "assign_caregiver") { const h = hhById(String(body.householdId)); if (h) h.primaryCaregiverId = String(body.caregiverId || ""); write(db); return ok(); }
+  }
+
+  // ---- caregiver availability
+  if (p === "/api/availability") {
+    let pr = db.CaregiverProfiles.find((c) => c.userId === me.userId);
+    if (method === "GET") return { availability: pr?.availability || "" };
+    if (!pr) { pr = { userId: me.userId, tenantId: IDS.tenant, credentials: "", rate: "", availability: "" }; db.CaregiverProfiles.push(pr); }
+    pr.availability = typeof body.availability === "string" ? body.availability : JSON.stringify(body.availability || {});
+    write(db); return ok();
   }
 
   // ---- shifts
@@ -259,9 +277,13 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     const roll: Record<string, { userId: string; name: string; shifts: number; hours: number; gross: number }> = {};
     for (const s of completed) { const r = (roll[s.caregiverId] ||= { userId: s.caregiverId, name: usrById(s.caregiverId)?.name || s.caregiverId, shifts: 0, hours: 0, gross: 0 }); r.shifts++; r.hours += hours(s); r.gross += cgRate(s.caregiverId) * (hours(s) || 1); }
     const rows = Object.values(roll).map((r) => ({ ...r, hours: Math.round(r.hours * 100) / 100, gross: Math.round(r.gross * 100) / 100 }));
-    return { rows, total: Math.round(rows.reduce((a, r) => a + r.gross, 0) * 100) / 100, backboneReady: false };
+    const provider = db.Tenant.payrollProvider || "";
+    return { rows, total: Math.round(rows.reduce((a, r) => a + r.gross, 0) * 100) / 100, provider, backboneReady: !!provider };
   }
-  if (p === "/api/payroll" && method === "POST") return { ok: false, note: "Demo — connect Check or Gusto Embedded to issue real payouts. Timesheets and gross pay are ready." };
+  if (p === "/api/payroll" && method === "POST") {
+    if (body.action === "connect_payroll") { db.Tenant.payrollProvider = String(body.provider || "gusto"); write(db); return { ok: true, connected: true, demo: true }; }
+    return { ok: false, note: "Gross pay is ready. Connect your payroll provider (Gusto) to issue payouts." };
+  }
 
   // ---- connect (Stripe)
   if (p === "/api/connect" && method === "POST") {

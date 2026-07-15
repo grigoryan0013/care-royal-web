@@ -4,17 +4,27 @@ import PortalShell, { type NavItem } from "../../components/PortalShell";
 import DocumentsPanel from "../../components/DocumentsPanel";
 import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
+import Icon from "../../components/Icon";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
-  { key: "home", label: "Home" },
-  { key: "household", label: "Household" },
-  { key: "bookings", label: "Bookings" },
-  { key: "calendar", label: "Calendar" },
-  { key: "messages", label: "Messages" },
-  { key: "payments", label: "Payments" },
-  { key: "documents", label: "Documents" },
+  { key: "home", label: "Home", icon: "dashboard" },
+  { key: "household", label: "My people", icon: "recipients" },
+  { key: "bookings", label: "Bookings", icon: "book" },
+  { key: "calendar", label: "Calendar", icon: "calendar" },
+  { key: "messages", label: "Messages", icon: "messages" },
+  { key: "payments", label: "Payments", icon: "money" },
+  { key: "documents", label: "Documents", icon: "documents" },
 ];
+const INTRO: Record<string, string> = {
+  home: "Care for the people, pets and home you love — booked and managed in one place.",
+  household: "The people, pets and homes you arrange care for.",
+  bookings: "Request care for any profile. Your agency reviews and approves each booking.",
+  calendar: "Every booking on one calendar.",
+  messages: "Message your agency and caregiver about a visit.",
+  payments: "Your invoices from the agency.",
+  documents: "Care plans and agreements to review and sign.",
+};
 
 interface Household { householdId: string; name: string; address: string; city: string; zip: string }
 interface Recipient { recipientId: string; name: string; type: string; dob: string; address: string; conditions: string; notes: string }
@@ -23,9 +33,9 @@ interface Booking { bookingId: string; status: string; start: string; end: strin
 interface Shift { shiftId: string; status: string; start: string; serviceName: string; recipientName: string; caregiverName: string; clockIn: string; notes: string }
 
 const typeLabel: Record<string, string> = { person: "Person", pet: "Pet", home: "Home" };
-const statusColor: Record<string, string> = {
-  requested: "bg-gold/20 text-gold-dark", scheduled: "bg-ok/15 text-ok",
-  declined: "bg-danger/15 text-danger", completed: "bg-brand-light text-brand",
+const statusBadge: Record<string, string> = {
+  requested: "badge-warn", scheduled: "badge-brand", declined: "badge-danger",
+  completed: "badge-ok", cancelled: "badge-muted",
 };
 
 export default function FamilyPortal() {
@@ -56,8 +66,10 @@ export default function FamilyPortal() {
 
   return (
     <PortalShell title="Family portal" allow={["family"]} nav={nav} active={active} onNav={setActive}>
-      <h1 className="mb-1 font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
-      <p className="mb-6 text-sm text-ink-light">Your household</p>
+      <div className="mb-6">
+        <h1 className="font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
+        <p className="mt-1 text-sm text-ink-light">{INTRO[active]}</p>
+      </div>
       {msg && <p className="mb-4 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</p>}
 
       {active === "home" && <Home recipients={recipients} bookings={bookings} shifts={shifts} onGo={setActive} />}
@@ -260,9 +272,9 @@ function BookingsView({ recipients, services, bookings, onChange }: { recipients
           <div key={b.bookingId} className="card flex items-center justify-between">
             <div>
               <div className="font-medium text-ink">{b.serviceName} <span className="text-ink-light">for {b.recipientName}</span></div>
-              <div className="text-xs text-ink-light">{b.start ? new Date(b.start).toLocaleString() : ""}{b.notes ? ` · ${b.notes}` : ""}</div>
+              <div className="text-xs text-ink-light">{b.start ? new Date(b.start).toLocaleString() : ""}{(b as { recurrence?: string }).recurrence === "weekly" ? " · repeats weekly" : ""}{b.notes ? ` · ${b.notes}` : ""}</div>
             </div>
-            <span className={`rounded-md px-2 py-1 text-xs font-semibold capitalize ${statusColor[b.status] || "bg-brand-light text-brand"}`}>{b.status}</span>
+            <span className={statusBadge[b.status] || "badge-brand"}>{b.status}</span>
           </div>
         ))}
       </div>
@@ -274,6 +286,8 @@ function NewBooking({ recipients, services, onDone }: { recipients: Recipient[];
   const [recipientId, setRecipientId] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [start, setStart] = useState("");
+  const [recurrence, setRecurrence] = useState("none");
+  const [occurrences, setOccurrences] = useState(4);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -284,7 +298,7 @@ function NewBooking({ recipients, services, onDone }: { recipients: Recipient[];
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setErr(""); setBusy(true);
     try {
-      await apiPost("/api/bookings", { action: "create", recipientId, serviceId, start, notes });
+      await apiPost("/api/bookings", { action: "create", recipientId, serviceId, start, notes, recurrence, occurrences });
       onDone();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : "Failed"); }
     finally { setBusy(false); }
@@ -307,6 +321,20 @@ function NewBooking({ recipients, services, onDone }: { recipients: Recipient[];
         </select>
       </div>
       <div><label className="label">Date & time</label><input className="field" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required /></div>
+      <div>
+        <label className="label">Repeat</label>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setRecurrence("none")} className={recurrence === "none" ? "chip-on" : "chip-off"}>One time</button>
+          <button type="button" onClick={() => setRecurrence("weekly")} className={recurrence === "weekly" ? "chip-on" : "chip-off"}>Weekly</button>
+        </div>
+        {recurrence === "weekly" && (
+          <div className="mt-2 flex items-center gap-2 text-sm text-ink-mid">
+            for
+            <input type="number" min={2} max={26} className="field field-sm !w-20" value={occurrences} onChange={(e) => setOccurrences(Math.max(2, Math.min(26, parseInt(e.target.value) || 4)))} />
+            weeks
+          </div>
+        )}
+      </div>
       <div><label className="label">Notes for the agency</label><textarea className="field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
       {err && <p className="text-sm text-danger">{err}</p>}
       <button className="btn-primary" disabled={busy || !serviceId}>{busy ? "Requesting..." : "Request booking"}</button>

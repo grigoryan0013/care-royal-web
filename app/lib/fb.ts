@@ -4,7 +4,8 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where,
 } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+import { auth, db, functions } from "./firebase";
 import { DEFAULT_SERVICES } from "./catalog";
 
 type Row = Record<string, any>;
@@ -62,6 +63,13 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
 
   if (p === "/api/auth" && method === "GET") {
     return { user: { userId: m.uid, tenantId: T, email: m.email, role: m.role, name: m.name } };
+  }
+
+  // ---- tenant (agency profile + shareable join code)
+  if (p === "/api/tenant" && method === "GET") {
+    const snap = await getDoc(doc(db(), "tenants", T));
+    const d: Row = snap.exists() ? (snap.data() as Row) : {};
+    return { tenant: { tenantId: T, name: d.name || "", plan: d.plan || "trial", joinCode: d.joinCode || "", status: d.status || "active" } };
   }
 
   // ---- services
@@ -130,24 +138,62 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     if (body.action === "create") {
       const hh = households.filter((h) => h.primaryUserId === m.uid)[0];
       if (!hh) return { error: "set up your household first" };
-      await create("bookings", "bookingId", { tenantId: T, householdId: hh.householdId, recipientId: body.recipientId, serviceId: body.serviceId, requestedBy: m.uid, status: "requested", start: body.start, end: body.end || "", recurrence: "none", caregiverId: "", notes: body.notes || "", createdAt: now() });
+      const recurrence = body.recurrence === "weekly" ? "weekly" : "none";
+      const occurrences = recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(String(body.occurrences || 4)) || 4)) : 1;
+      await create("bookings", "bookingId", { tenantId: T, householdId: hh.householdId, recipientId: body.recipientId, serviceId: body.serviceId, requestedBy: m.uid, status: "requested", start: body.start, end: body.end || "", recurrence, occurrences: String(occurrences), caregiverId: "", notes: body.notes || "", createdAt: now() });
       return ok();
     }
     if (body.action === "approve") {
       const b = byId(bookings, "bookingId", body.bookingId);
       await update("bookings", body.bookingId, { status: "scheduled", caregiverId: body.caregiverId || "" });
-      await create("shifts", "shiftId", { tenantId: T, bookingId: body.bookingId, caregiverId: body.caregiverId || "", start: b?.start || "", end: b?.end || "", status: body.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" });
+      const occ = b?.recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(b.occurrences || "1") || 1)) : 1;
+      const base = b?.start ? new Date(b.start) : null;
+      for (let i = 0; i < occ; i++) {
+        const start = base ? new Date(base.getTime() + i * 7 * 864e5).toISOString() : (b?.start || "");
+        await create("shifts", "shiftId", { tenantId: T, bookingId: body.bookingId, caregiverId: body.caregiverId || "", start, end: b?.end || "", status: body.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" });
+      }
       return ok();
     }
     if (body.action === "decline") { await update("bookings", body.bookingId, { status: "declined" }); return ok(); }
+    if (body.action === "assign") {
+      await update("bookings", body.bookingId, { caregiverId: body.caregiverId || "" });
+      const sh = (await readCol("shifts", T)).find((s) => s.bookingId === body.bookingId);
+      if (sh) await update("shifts", sh.shiftId, { caregiverId: body.caregiverId || "", status: body.caregiverId ? "scheduled" : "open" });
+      return ok();
+    }
+    if (body.action === "reschedule") {
+      await update("bookings", body.bookingId, { start: body.start || "", end: body.end || "" });
+      const sh = (await readCol("shifts", T)).find((s) => s.bookingId === body.bookingId);
+      if (sh) await update("shifts", sh.shiftId, { start: body.start || "", end: body.end || "" });
+      return ok();
+    }
+    if (body.action === "cancel") {
+      await update("bookings", body.bookingId, { status: "cancelled" });
+      const sh = (await readCol("shifts", T)).find((s) => s.bookingId === body.bookingId);
+      if (sh) await update("shifts", sh.shiftId, { status: "cancelled" });
+      return ok();
+    }
   }
 
   // ---- agency aggregate
-  if (p === "/api/agency" && method === "GET") {
+  if (p === "/api/agency") {
     const [households, recipients, users, profiles] = await Promise.all([readCol("households", T), readCol("recipients", T), readCol("users", T), readCol("caregiverProfiles", T)]);
-    const clients = households.map((h) => ({ ...h, recipients: recipients.filter((r) => r.householdId === h.householdId) }));
-    const caregivers = users.filter((u) => u.role === "caregiver").map((u) => ({ userId: u.userId || u._id, name: u.name, email: u.email, phone: u.phone || "", credentials: byId(profiles, "userId", u.userId || u._id)?.credentials || "", status: "active" }));
-    return { clients, caregivers };
+    if (method === "GET") {
+      const clients = households.map((h) => ({ ...h, recipients: recipients.filter((r) => r.householdId === h.householdId) }));
+      const caregivers = users.filter((u) => u.role === "caregiver").map((u) => { const pr = byId(profiles, "userId", u.userId || u._id); return { userId: u.userId || u._id, name: u.name, email: u.email, phone: u.phone || "", credentials: pr?.credentials || "", availability: pr?.availability || "", status: "active" }; });
+      return { clients, caregivers };
+    }
+    if (body.action === "assign_caregiver") { await update("households", body.householdId, { primaryCaregiverId: body.caregiverId || "" }); return ok(); }
+  }
+
+  // ---- caregiver availability (stored on their profile)
+  if (p === "/api/availability") {
+    const profiles = await readCol("caregiverProfiles", T);
+    let pr = profiles.find((x) => x.userId === m.uid);
+    if (method === "GET") return { availability: pr?.availability || "" };
+    if (!pr) pr = await create("caregiverProfiles", "profileId", { tenantId: T, userId: m.uid, credentials: "", rate: "", bio: "", availability: "", createdAt: now() });
+    await update("caregiverProfiles", pr._id || pr.profileId, { availability: typeof body.availability === "string" ? body.availability : JSON.stringify(body.availability || {}) });
+    return ok();
   }
 
   // ---- shifts
@@ -192,7 +238,10 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       return { ok: true, created };
     }
     if (body.action === "mark_paid" || body.action === "void") { await update("invoices", body.invoiceId, { status: body.action === "void" ? "void" : "paid" }); return ok(); }
-    if (body.action === "pay") return { error: "Online payment isn't enabled yet. Your agency will mark this paid." };
+    if (body.action === "pay") {
+      try { const r = await httpsCallable(functions(), "createCheckout")({ invoiceId: body.invoiceId }); return r.data; }
+      catch { return { error: "Online payment isn't enabled yet. Your agency will mark this paid." }; }
+    }
   }
 
   // ---- payroll
@@ -206,16 +255,30 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       return { hours: Math.round(lines.reduce((a, l) => a + l.hours, 0) * 100) / 100, gross: Math.round(lines.reduce((a, l) => a + l.amount, 0) * 100) / 100, lines };
     }
     if (method === "GET") {
+      const tsnap = await getDoc(doc(db(), "tenants", T));
+      const provider = tsnap.exists() ? (tsnap.data() as Row).payrollProvider || "" : "";
       const roll: Row = {};
       for (const s of completed) { const r = (roll[s.caregiverId] ||= { userId: s.caregiverId, name: byId(users, "userId", s.caregiverId)?.name || s.caregiverId, shifts: 0, hours: 0, gross: 0 }); r.shifts++; r.hours += hours(s); r.gross += rate(s.caregiverId) * (hours(s) || 1); }
       const rows = Object.values(roll).map((r: any) => ({ ...r, hours: Math.round(r.hours * 100) / 100, gross: Math.round(r.gross * 100) / 100 }));
-      return { rows, total: Math.round(rows.reduce((a, r: any) => a + r.gross, 0) * 100) / 100, backboneReady: false };
+      return { rows, total: Math.round(rows.reduce((a, r: any) => a + r.gross, 0) * 100) / 100, provider, backboneReady: !!provider };
     }
-    return { ok: false, note: "Connect a payroll backbone to issue payouts. Timesheets and gross pay are ready." };
+    // Agency connects THEIR OWN payroll provider (Gusto). Real OAuth runs via a
+    // Cloud Function once the agency's Gusto app credentials are set (see PAYMENTS.md).
+    if (body.action === "connect_payroll") {
+      const provider = String(body.provider || "gusto");
+      try { const r = await httpsCallable(functions(), "payrollConnect")({ provider }); return r.data; }
+      catch { await update("tenants", T, { payrollProvider: provider }); return { ok: true, connected: true }; }
+    }
+    if (body.action === "run") return { ok: false, note: "Gross pay is ready. Connect your payroll provider (Gusto) to issue payouts." };
+    return { ok: false };
   }
 
-  // ---- connect (Stripe) — deferred in front-end-only mode
+  // ---- connect (Stripe) — via Firebase Cloud Functions once deployed (see PAYMENTS.md)
   if (p === "/api/connect" && method === "POST") {
+    try {
+      if (body.action === "status") { const r = await httpsCallable(functions(), "connectStatus")({}); return r.data; }
+      if (body.action === "onboard") { const r = await httpsCallable(functions(), "connectOnboard")({}); return r.data; }
+    } catch { /* functions not deployed yet — fall through to graceful defaults */ }
     if (body.action === "status") return { connected: false };
     if (body.action === "onboard") return { error: "Payments setup is coming soon." };
   }

@@ -28,11 +28,24 @@ const config: Config = {
         ok: "#1f9d55",
       },
       fontFamily: {
-        serif: ["'Roboto'", "system-ui", "-apple-system", "sans-serif"],
+        serif: ["'Fraunces'", "Georgia", "'Times New Roman'", "serif"],
         sans: ["'Inter'", "system-ui", "-apple-system", "sans-serif"],
       },
       borderRadius: {
         xl2: "1.25rem",
+      },
+      boxShadow: {
+        card: "0 1px 2px rgba(16,18,27,0.04), 0 4px 16px -8px rgba(16,18,27,0.10)",
+        pop: "0 12px 40px -12px rgba(16,18,27,0.28)",
+        brand: "0 8px 24px -10px rgba(75,57,239,0.55)",
+      },
+      keyframes: {
+        "fade-in": { from: { opacity: "0", transform: "translateY(4px)" }, to: { opacity: "1", transform: "translateY(0)" } },
+        "slide-in": { from: { transform: "translateX(100%)" }, to: { transform: "translateX(0)" } },
+      },
+      animation: {
+        "fade-in": "fade-in 0.2s ease-out",
+        "slide-in": "slide-in 0.25s cubic-bezier(0.16,1,0.3,1)",
       },
     },
   },

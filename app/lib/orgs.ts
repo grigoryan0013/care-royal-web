@@ -14,9 +14,20 @@ export interface Org {
 
 const KEY = "cr_demo_orgs";
 
+// Monthly price per plan — drives the owner console MRR/ARR metrics.
+export const PLAN_PRICE: Record<string, number> = { Starter: 149, Pro: 399, Enterprise: 999 };
+export function mrr(orgs: Org[]): number {
+  return orgs.filter((o) => o.status === "active").reduce((t, o) => t + (PLAN_PRICE[o.plan] || 0), 0);
+}
+
 function seed(): Org[] {
+  const d = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
   return [
-    { id: "t_demo", name: "Care Royal", adminEmail: "grigoryan", plan: "Pro", status: "active", createdAt: new Date().toISOString() },
+    { id: "t_demo", name: "Care Royal", adminEmail: "grigoryan", plan: "Pro", status: "active", createdAt: d(120) },
+    { id: "t_sun", name: "Sunrise Home Care", adminEmail: "admin@sunrisehc.com", plan: "Enterprise", status: "active", createdAt: d(86) },
+    { id: "t_gld", name: "Golden Years Caregivers", adminEmail: "ops@goldenyears.com", plan: "Pro", status: "active", createdAt: d(54) },
+    { id: "t_com", name: "Comfort Keepers LA", adminEmail: "hello@comfortla.com", plan: "Starter", status: "active", createdAt: d(31) },
+    { id: "t_hrt", name: "Heartland Family Care", adminEmail: "team@heartland.com", plan: "Starter", status: "suspended", createdAt: d(12) },
   ];
 }
 

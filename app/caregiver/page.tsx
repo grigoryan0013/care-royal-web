@@ -4,16 +4,27 @@ import PortalShell, { type NavItem } from "../../components/PortalShell";
 import DocumentsPanel from "../../components/DocumentsPanel";
 import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
+import Icon from "../../components/Icon";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
-  { key: "schedule", label: "My schedule" },
-  { key: "calendar", label: "Calendar" },
-  { key: "available", label: "Open shifts" },
-  { key: "messages", label: "Messages" },
-  { key: "pay", label: "My pay" },
-  { key: "documents", label: "Documents" },
+  { key: "schedule", label: "My schedule", icon: "schedule" },
+  { key: "calendar", label: "Calendar", icon: "calendar" },
+  { key: "available", label: "Open shifts", icon: "plus" },
+  { key: "availability", label: "My availability", icon: "clock" },
+  { key: "messages", label: "Messages", icon: "messages" },
+  { key: "pay", label: "My pay", icon: "pay" },
+  { key: "documents", label: "Documents", icon: "documents" },
 ];
+const INTRO: Record<string, string> = {
+  schedule: "Your assigned visits. Clock in when you arrive and clock out with a visit note.",
+  calendar: "Your month at a glance.",
+  available: "Unassigned shifts you can claim.",
+  availability: "Tell your agency which days and hours you can work.",
+  messages: "Message the family and your agency about a client.",
+  pay: "Your hours and gross pay this period.",
+  documents: "Your agreements and acknowledgments to sign.",
+};
 
 interface Shift {
   shiftId: string; status: string; start: string; end: string;
@@ -21,13 +32,8 @@ interface Shift {
   careNotes: string; address: string; city: string; householdName: string;
   clockIn: string; clockOut: string; notes: string;
 }
+const badge: Record<string, string> = { scheduled: "badge-brand", in_progress: "badge-gold", completed: "badge-ok", open: "badge-brand", cancelled: "badge-muted" };
 
-const statusColor: Record<string, string> = {
-  scheduled: "bg-brand-light text-brand", in_progress: "bg-gold/20 text-gold-dark",
-  completed: "bg-ok/15 text-ok", open: "bg-brand-light text-brand",
-};
-
-// Best-effort geolocation for the clock stamp.
 function getGps(): Promise<string> {
   return new Promise((resolve) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return resolve("");
@@ -52,16 +58,26 @@ export default function CaregiverPortal() {
   useEffect(() => { load(); }, [load]);
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(""), 3000); }
 
+  const upcoming = shifts.filter((s) => s.status === "scheduled" || s.status === "in_progress");
+
   return (
     <PortalShell title="Caregiver" allow={["caregiver"]} nav={nav} active={active} onNav={setActive}>
-      <h1 className="mb-1 font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
-      <p className="mb-6 text-sm text-ink-light">Caregiver app</p>
+      <div className="mb-6">
+        <h1 className="font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
+        <p className="mt-1 text-sm text-ink-light">{INTRO[active]}</p>
+      </div>
       {msg && <p className="mb-4 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</p>}
 
       {active === "schedule" && (
         <div className="space-y-3">
-          {shifts.length === 0 && <div className="card"><p className="text-sm text-ink-light">No shifts assigned yet.</p></div>}
-          {shifts.map((s) => <ShiftCard key={s.shiftId} s={s} onChange={() => { load(); flash("Updated."); }} />)}
+          {upcoming.length === 0 && <div className="card"><p className="text-sm text-ink-light">No upcoming shifts. Check Open shifts to claim one.</p></div>}
+          {upcoming.map((s) => <ShiftCard key={s.shiftId} s={s} onChange={() => { load(); flash("Updated."); }} />)}
+          {shifts.some((s) => s.status === "completed") && (
+            <>
+              <h3 className="pt-4 text-sm font-semibold uppercase tracking-wide text-ink-light">Completed</h3>
+              {shifts.filter((s) => s.status === "completed").slice(0, 8).map((s) => <ShiftCard key={s.shiftId} s={s} onChange={load} />)}
+            </>
+          )}
         </div>
       )}
 
@@ -74,13 +90,14 @@ export default function CaregiverPortal() {
                 <div className="font-medium text-ink">{s.serviceName} <span className="text-ink-light">for {s.recipientName}</span></div>
                 <div className="text-xs text-ink-light">{s.start ? new Date(s.start).toLocaleString() : ""}{s.city ? ` · ${s.city}` : ""}</div>
               </div>
-              <button onClick={async () => { await apiPost("/api/shifts", { action: "claim", shiftId: s.shiftId }); load(); flash("Shift claimed."); }} className="btn-primary">Claim</button>
+              <button onClick={async () => { await apiPost("/api/shifts", { action: "claim", shiftId: s.shiftId }); load(); flash("Shift claimed."); }} className="btn-primary btn-sm">Claim</button>
             </div>
           ))}
         </div>
       )}
 
-      {active === "calendar" && <CalendarView events={shifts.map((s) => ({ date: s.start, label: s.serviceName, sub: s.recipientName, tone: s.status === "completed" ? "ok" : s.status === "in_progress" ? "gold" : "brand" }))} />}
+      {active === "availability" && <Availability onSaved={() => flash("Availability saved.")} />}
+      {active === "calendar" && <CalendarView events={shifts.map((s) => ({ id: s.shiftId, date: s.start, label: s.serviceName, sub: s.recipientName, tone: s.status === "completed" ? "ok" : s.status === "in_progress" ? "gold" : s.status === "cancelled" ? "danger" : "brand" }))} />}
       {active === "messages" && <MessagesPanel />}
       {active === "pay" && <MyPay />}
       {active === "documents" && <DocumentsPanel />}
@@ -111,17 +128,17 @@ function ShiftCard({ s, onChange }: { s: Shift; onChange: () => void }) {
           <div className="text-xs text-ink-light">{s.start ? new Date(s.start).toLocaleString() : ""}{s.address ? ` · ${s.address}` : ""}{s.city ? `, ${s.city}` : ""}</div>
           {s.careNotes && <div className="mt-1 text-xs text-ink-mid">Care notes: {s.careNotes}</div>}
         </div>
-        <span className={`rounded-md px-2 py-1 text-xs font-semibold capitalize ${statusColor[s.status] || "bg-brand-light text-brand"}`}>{s.status.replace("_", " ")}</span>
+        <span className={badge[s.status] || "badge-brand"}>{s.status.replace("_", " ")}</span>
       </div>
 
       {s.status === "scheduled" && (
-        <button onClick={clockIn} disabled={busy} className="btn-primary mt-4">{busy ? "…" : "Clock in"}</button>
+        <button onClick={clockIn} disabled={busy} className="btn-primary mt-4 w-full sm:w-auto">{busy ? "…" : "Clock in"}</button>
       )}
       {s.status === "in_progress" && (
         <div className="mt-4 space-y-2">
-          <div className="text-xs text-ink-light">Clocked in {s.clockIn ? new Date(s.clockIn).toLocaleTimeString() : ""}</div>
+          <div className="flex items-center gap-2 text-xs text-ok"><span className="stat-dot bg-ok animate-pulse" />Clocked in {s.clockIn ? new Date(s.clockIn).toLocaleTimeString() : ""}</div>
           <textarea className="field" rows={2} placeholder="Visit notes (meals, meds, tasks)…" value={notes} onChange={(e) => setNotes(e.target.value)} />
-          <button onClick={clockOut} disabled={busy} className="btn-primary">{busy ? "…" : "Clock out"}</button>
+          <button onClick={clockOut} disabled={busy} className="btn-primary w-full sm:w-auto">{busy ? "…" : "Clock out"}</button>
         </div>
       )}
       {s.status === "completed" && s.notes && (
@@ -131,8 +148,47 @@ function ShiftCard({ s, onChange }: { s: Shift; onChange: () => void }) {
   );
 }
 
-interface PayLine { date: string; service: string; recipient: string; hours: number; amount: number }
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function Availability({ onSaved }: { onSaved: () => void }) {
+  const [days, setDays] = useState<number[]>([]);
+  const [from, setFrom] = useState("09:00");
+  const [to, setTo] = useState("17:00");
+  const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    apiGet("/api/availability").then((d) => {
+      try { const a = d.availability ? JSON.parse(d.availability) : null; if (a) { setDays(a.days || []); setFrom(a.from || "09:00"); setTo(a.to || "17:00"); } } catch { /* ignore */ }
+    }).catch(() => {});
+  }, []);
+
+  function toggle(i: number) { setDays((d) => d.includes(i) ? d.filter((x) => x !== i) : [...d, i].sort()); }
+  async function save() {
+    setBusy(true);
+    try { await apiPost("/api/availability", { action: "set", availability: JSON.stringify({ days, from, to }) }); onSaved(); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card max-w-lg space-y-5">
+      <div>
+        <label className="label">Days I can work</label>
+        <div className="flex flex-wrap gap-2">
+          {DAYS.map((d, i) => (
+            <button key={d} type="button" onClick={() => toggle(i)} className={days.includes(i) ? "chip-on" : "chip-off"}>{d}</button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div><label className="label">Available from</label><input type="time" className="field" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+        <div><label className="label">Available until</label><input type="time" className="field" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+      </div>
+      <button onClick={save} disabled={busy} className="btn-primary">{busy ? "Saving…" : "Save availability"}</button>
+      <p className="hint">Your agency sees this when assigning shifts, so they only book you when you&apos;re free.</p>
+    </div>
+  );
+}
+
+interface PayLine { date: string; service: string; recipient: string; hours: number; amount: number }
 function MyPay() {
   const [data, setData] = useState<{ hours: number; gross: number; lines: PayLine[] }>({ hours: 0, gross: 0, lines: [] });
   useEffect(() => {
@@ -142,7 +198,7 @@ function MyPay() {
     <div className="space-y-5">
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="card"><div className="text-3xl font-semibold text-brand">{data.hours}</div><div className="mt-1 text-sm text-ink-mid">Hours this period</div></div>
-        <div className="card"><div className="text-3xl font-semibold text-brand">${data.gross.toFixed(2)}</div><div className="mt-1 text-sm text-ink-mid">Gross pay this period</div></div>
+        <div className="card"><div className="text-3xl font-semibold text-ok">${data.gross.toFixed(2)}</div><div className="mt-1 text-sm text-ink-mid">Gross pay this period</div></div>
       </div>
       <div className="card">
         <h3 className="mb-3 font-serif text-lg text-ink">Completed shifts</h3>

@@ -34,6 +34,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---- join codes: public code -> tenant lookup so a family/caregiver can
+    // join an existing agency at signup (before they have a profile). Contains
+    // no sensitive data (tenantId + agency display name only).
+    match /joinCodes/{code} {
+      allow read: if true;
+      allow create: if signedIn();      // agency admin mints its code at signup
+      allow update, delete: if false;
+    }
+
     // ---- user profiles (role + tenant live here) ----
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || (isAgency() && resource.data.tenantId == myTenant()));

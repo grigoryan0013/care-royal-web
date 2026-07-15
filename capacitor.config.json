@@ -1,0 +1,10 @@
+{
+  "appId": "com.careroyal.app",
+  "appName": "Care Royal",
+  "webDir": "out",
+  "server": {
+    "url": "https://thecareroyal.com",
+    "cleartext": false
+  },
+  "ios": { "contentInset": "always" }
+}

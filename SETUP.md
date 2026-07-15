@@ -1,72 +1,45 @@
-# Care Royal — Setup & Deploy (Cloudflare Pages + Google Sheets)
+# Care Royal — Setup & Deploy (Next.js static + Firebase)
 
-Architecture: Next.js (static export) + Cloudflare Pages Functions API +
-Google Sheets/Docs/Drive as the private data layer (service account in *your*
-Google Workspace). Same pattern as PGL.
+**Architecture:** Next.js (static export) + **Firebase (Auth + Firestore) as the
+only backend**. All data access is client-side (`app/lib/fb.ts`) and secured by
+`firestore.rules`. There are no server functions and no server-side secrets.
+Cloudflare Pages (or any static host) just serves the `out/` bundle.
 
-## What I need from you to make it live
-1. **Google service account JSON** — a service account with the Google Sheets API
-   (and later Drive/Docs) enabled. The whole JSON, as one string.
-   - Reuse an existing one from PGL/Tegula, or create a fresh one for Care Royal.
-2. **A Google Sheet** shared with that service account's email (Editor). Copy its
-   ID from the URL — that's `MASTER_SHEET_ID`. It can be empty; the app builds the tabs.
-3. **A random `ADMIN_JWT_SECRET`** (any long random string) — signs sessions.
-4. **A `BOOTSTRAP_SECRET`** (any random string) — protects the one-time bootstrap.
-5. **Stripe** (Category 4 — payments/payroll):
-   - `STRIPE_SECRET_KEY` (sk_live_/sk_test_), with **Connect enabled** on the account.
-   - `STRIPE_WEBHOOK_SECRET` (whsec_) — add a webhook to `/api/stripe-webhook`
-     for `checkout.session.completed` and `payment_intent.succeeded`.
-   - `PAYROLL_PROVIDER` (optional) — set once an embedded payroll backbone
-     (Check / Gusto Embedded) is wired, to enable actual pay runs.
-6. **Email notifications** (optional): `NOTIFY_FROM_EMAIL` + `NOTIFY_FROM_NAME`.
-   Requires the service account to have Gmail domain-wide delegation for that
-   sender (same setup as Tegula/PGL). If unset, notifications silently no-op.
-
-## Security note (static export)
-This app deploys as static files (`output: "export"`) with no Next.js server.
-The open Next.js CVEs all target the server runtime (Image Optimization, RSC
-cache, middleware, WebSocket upgrades) and are not reachable in this
-architecture. A move to Next 16 is optional/future, not required.
+> Note: the old Google Sheets / Cloudflare Pages Functions backend has been
+> retired. The Firebase web config in `app/lib/firebase.ts` is public by design
+> (project `care-royale2-4dgwu0`); security lives in the Firestore rules.
 
 ## Local run
 ```bash
 cd ~/Desktop/CareRoyal
 npm install
+npm run dev        # http://localhost:3000
 npm run build      # static export to ./out
 ```
-For local API testing use `npx wrangler pages dev out` with a `.dev.vars` file
-holding the secrets below.
 
-## Cloudflare Pages env vars (Settings -> Environment variables, encrypted)
-```
-GOOGLE_SERVICE_ACCOUNT = { ...full service account JSON... }
-MASTER_SHEET_ID        = <sheet id from the URL>
-ADMIN_JWT_SECRET       = <random string>
-BOOTSTRAP_SECRET       = <random string>
-```
+## Modes
+- **Demo mode** — sign in with `grigoryan` / `201816`. Runs the entire app on
+  seeded localStorage data, no Firebase needed. One identity switches between the
+  Agency, Family and Caregiver portals.
+- **Real mode** — real accounts via Firebase Auth. Sign up at `/login/?mode=signup`:
+  - **Agency** → creates a new tenant, mints a 6-char join code, loads the full
+    service catalog, and signs you in as `agency_admin`.
+  - **Family / Caregiver** → enter the agency's join code to attach to that tenant.
 
-## First-time bootstrap (creates tabs + Tenant #1 + admin)
-After deploy, run once:
-```bash
-curl -X POST https://<your-pages-domain>/api/auth \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action":"bootstrap",
-    "secret":"<BOOTSTRAP_SECRET>",
-    "tenantName":"Care Royal",
-    "slug":"care-royal",
-    "adminEmail":"you@example.com",
-    "adminPassword":"<choose a strong password>",
-    "adminName":"Owner"
-  }'
-```
-Then sign in at `/login/` with that admin email. Families and caregivers can
-self-register (they attach to the `care-royal` tenant slug).
+## Go-live checklist (real mode)
+1. **Firebase Auth** — enable Email/Password sign-in in the Firebase console.
+2. **Firestore** — create the database (production mode).
+3. **Deploy the security rules** (required — signup writes tenant/user docs):
+   ```bash
+   firebase deploy --only firestore:rules
+   ```
+4. **Deploy the static site** to Cloudflare Pages via the Git integration
+   (build: `npm run build`, output dir: `out`).
+5. Create the first agency by signing up as **Agency** at `/login/?mode=signup`,
+   then share that agency's join code with staff and families.
 
-## Verify wiring
-`GET /api/diag` returns which secrets are present (never the values).
-
-## Deploy note
-Deploy via the Cloudflare Pages Git integration or `wrangler pages deploy out`.
-Never commit the service account JSON or any secret — they live only in the
-Pages dashboard.
+## Payments & payroll (future)
+Stripe Connect and payroll payouts require a small server surface for the secret
+key. When wired, add it as a **Firebase Cloud Function** (keeping Firebase as the
+single backend) — see `app/lib/fb.ts` `/api/connect`, which is currently a stub.
+Invoices, timesheets and gross-pay calculations already work client-side today.

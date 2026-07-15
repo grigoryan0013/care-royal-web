@@ -1,32 +1,48 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import PortalShell, { type NavItem } from "../../components/PortalShell";
+import PortalShell, { type NavItem, type NotifItem } from "../../components/PortalShell";
 import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
+import Drawer from "../../components/Drawer";
+import Icon from "../../components/Icon";
+import { BarChart, Donut } from "../../components/Charts";
+import { printDoc } from "../../components/DocumentsPanel";
+import DocStudio from "../../components/DocStudio";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "approvals", label: "Approvals" },
-  { key: "clients", label: "Clients" },
-  { key: "staff", label: "Staff" },
-  { key: "services", label: "Services" },
-  { key: "schedule", label: "Schedule" },
-  { key: "calendar", label: "Calendar" },
-  { key: "messages", label: "Messages" },
-  { key: "money", label: "Money" },
-  { key: "documents", label: "Documents" },
-  { key: "leads", label: "Leads" },
+  { key: "dashboard", label: "Dashboard", icon: "dashboard" },
+  { key: "schedule", label: "Schedule", icon: "schedule" },
+  { key: "clients", label: "Clients", icon: "clients" },
+  { key: "staff", label: "Staff", icon: "staff" },
+  { key: "services", label: "Services", icon: "services" },
+  { key: "messages", label: "Messages", icon: "messages" },
+  { key: "money", label: "Money", icon: "money" },
+  { key: "documents", label: "Documents", icon: "documents" },
+  { key: "leads", label: "Leads", icon: "leads" },
+  { key: "reports", label: "Reports", icon: "spark" },
 ];
 
+const SECTION_INTRO: Record<string, string> = {
+  dashboard: "Your agency at a glance — what needs attention today.",
+  schedule: "Every booking on one calendar. Click any booking to approve, assign a caregiver, reschedule or cancel.",
+  clients: "The households you serve and the people, pets and homes under their care.",
+  staff: "Your caregivers. Share your agency code so they can join and see their shifts.",
+  services: "Your service menu and rates. Families can only book what you switch on here.",
+  messages: "One shared thread per client between your office, the family and the caregiver.",
+  money: "Connect payments, generate invoices from completed shifts, and run payroll from the same timesheets.",
+  documents: "Send care plans, agreements and consents for in-app signature with a full audit trail.",
+  leads: "Your inquiry pipeline. Import a CSV and move each lead from new to client.",
+  reports: "How your agency is trending — bookings, revenue, caregiver hours and lead conversion.",
+};
+
 interface Service { serviceId: string; category: string; name: string; profileType: string; pricingModel: string; rate: string; credential: string; active: string }
-interface Caregiver { userId: string; name: string; email: string; phone: string; credentials: string; status: string }
+interface Caregiver { userId: string; name: string; email: string; phone: string; credentials: string; status: string; availability?: string }
 interface Recipient { recipientId: string; name: string; type: string; conditions: string }
-interface Client { householdId: string; name: string; city: string; recipients: Recipient[] }
-interface Booking { bookingId: string; status: string; start: string; serviceName: string; recipientName: string; householdName: string; credential: string; notes: string; caregiverId: string }
-
-interface Shift { shiftId: string; status: string; start: string; serviceName: string; recipientName: string; householdName: string; caregiverName: string; clockIn: string; clockOut: string; notes: string }
-
+interface Client { householdId: string; name: string; city: string; recipients: Recipient[]; primaryCaregiverId?: string }
+interface Booking { bookingId: string; status: string; start: string; end?: string; serviceName: string; recipientName: string; householdName: string; credential: string; notes: string; caregiverId: string }
+interface Shift { shiftId: string; status: string; start: string; caregiverId: string; serviceName: string; recipientName: string; householdName: string; caregiverName: string; clockIn: string; clockOut: string; notes: string }
+interface Tenant { name: string; plan: string; joinCode: string }
 
 export default function AgencyPortal() {
   const [active, setActive] = useState("dashboard");
@@ -36,82 +52,167 @@ export default function AgencyPortal() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [invoices, setInvoices] = useState<{ amount: string; status: string; createdAt: string }[]>([]);
+  const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [leadCount, setLeadCount] = useState(0);
+  const [leadCounts, setLeadCounts] = useState<Record<string, number>>({});
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [s, a, b, sh, inv] = await Promise.all([
+    const [s, a, b, sh, inv, t, ld] = await Promise.all([
       apiGet("/api/services").catch(() => ({ services: [] })),
       apiGet("/api/agency").catch(() => ({ clients: [], caregivers: [] })),
       apiGet("/api/bookings").catch(() => ({ bookings: [] })),
       apiGet("/api/shifts").catch(() => ({ shifts: [] })),
       apiGet("/api/invoices").catch(() => ({ invoices: [] })),
+      apiGet("/api/tenant").catch(() => ({ tenant: null })),
+      apiGet("/api/leads").catch(() => ({ grandTotal: 0 })),
     ]);
     setServices(s.services || []);
     setClients(a.clients || []); setCaregivers(a.caregivers || []);
     setBookings(b.bookings || []);
     setShifts(sh.shifts || []);
     setInvoices(inv.invoices || []);
+    setTenant(t.tenant || null);
+    setLeadCount(ld.grandTotal || 0);
+    setLeadCounts(ld.counts || {});
   }, []);
   useEffect(() => { load(); }, [load]);
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(""), 3000); }
 
   const pending = bookings.filter((b) => b.status === "requested");
+  const unassigned = shifts.filter((s) => s.status === "open");
+  const notifications: NotifItem[] = [
+    ...pending.map((b) => ({ text: `Booking request: ${b.serviceName}`, sub: `${b.recipientName} · ${b.householdName}`, tone: "gold" as const })),
+    ...unassigned.map((s) => ({ text: `Unassigned shift: ${s.serviceName}`, sub: s.start ? fmtDate(s.start) : "", tone: "brand" as const })),
+  ].slice(0, 12);
 
   return (
-    <PortalShell title="Agency console" allow={["agency_admin", "agency_coord"]} nav={nav} active={active} onNav={setActive}>
-      <h1 className="mb-1 font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
-      <p className="mb-6 text-sm text-ink-light">Agency console</p>
+    <PortalShell title="Agency console" allow={["agency_admin", "agency_coord"]} nav={nav} active={active} onNav={setActive} notifications={notifications}>
+      <div className="mb-6">
+        <h1 className="font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
+        <p className="mt-1 text-sm text-ink-light">{SECTION_INTRO[active]}</p>
+      </div>
       {msg && <p className="mb-4 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</p>}
 
-      {active === "dashboard" && <Dashboard pending={pending} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} onGo={setActive} />}
-
-      {active === "approvals" && <Approvals pending={pending} caregivers={caregivers} onChange={() => { load(); flash("Updated."); }} />}
-      {active === "clients" && <Clients clients={clients} />}
-      {active === "staff" && <Staff caregivers={caregivers} />}
+      {active === "dashboard" && <Dashboard tenant={tenant} services={services} bookings={bookings} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} leadCount={leadCount} onGo={setActive} />}
+      {active === "schedule" && <Schedule bookings={bookings} caregivers={caregivers} shifts={shifts} onChange={() => { load(); flash("Schedule updated."); }} />}
+      {active === "clients" && <Clients clients={clients} caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Client updated."); }} />}
+      {active === "staff" && <Staff caregivers={caregivers} joinCode={tenant?.joinCode} />}
       {active === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
-      {active === "schedule" && <Schedule shifts={shifts} />}
-      {active === "calendar" && <CalendarView events={shifts.map((s) => ({ date: s.start, label: s.serviceName, sub: s.caregiverName || "Unassigned", tone: s.status === "completed" ? "ok" : s.status === "in_progress" ? "gold" : "brand" }))} />}
       {active === "messages" && <MessagesPanel />}
-      {active === "money" && <Money />}
-      {active === "documents" && <AgencyDocs clients={clients} onChange={() => flash("Document sent.")} />}
+      {active === "money" && <Money onGo={setActive} />}
+      {active === "documents" && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
       {active === "leads" && <Leads />}
+      {active === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} leadCounts={leadCounts} />}
     </PortalShell>
   );
 }
 
-function Dashboard({ pending, shifts, invoices, clients, caregivers, onGo }: {
-  pending: Booking[]; shifts: Shift[]; invoices: { amount: string; status: string; createdAt: string }[];
-  clients: Client[]; caregivers: Caregiver[]; onGo: (k: string) => void;
+// ---------------------------------------------------------------- helpers
+const fmtTime = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+const fmtDate = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); };
+const toLocalInput = (iso: string) => { const d = new Date(iso); if (isNaN(d.getTime())) return ""; const off = d.getTimezoneOffset(); return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16); };
+const statusTone: Record<string, "brand" | "gold" | "ok" | "danger"> = { requested: "gold", scheduled: "brand", in_progress: "gold", completed: "ok", declined: "danger", cancelled: "danger" };
+const statusBadge: Record<string, string> = { requested: "badge-warn", scheduled: "badge-brand", in_progress: "badge-gold", completed: "badge-ok", declined: "badge-danger", cancelled: "badge-muted" };
+
+// ---------------------------------------------------------------- share code
+function ShareCode({ joinCode }: { joinCode?: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!joinCode) return null;
+  function copy() { navigator.clipboard?.writeText(joinCode!).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }); }
+  return (
+    <div className="card flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h3 className="font-serif text-lg text-ink">Invite your team & families</h3>
+        <p className="mt-1 text-sm text-ink-light">Share this code. Caregivers and families enter it when they create their account to join your agency.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="rounded-lg border-2 border-dashed border-brand/40 bg-brand-light px-4 py-2 font-mono text-xl font-bold tracking-[0.3em] text-brand">{joinCode}</span>
+        <button onClick={copy} className="btn-soft">{copied ? "Copied" : "Copy"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- dashboard
+function Dashboard({ tenant, services, bookings, shifts, invoices, clients, caregivers, leadCount, onGo }: {
+  tenant: Tenant | null; services: Service[]; bookings: Booking[]; shifts: Shift[];
+  invoices: { amount: string; status: string; createdAt: string }[];
+  clients: Client[]; caregivers: Caregiver[]; leadCount: number; onGo: (k: string) => void;
 }) {
   const now = new Date();
   const sameDay = (iso: string) => { const d = new Date(iso); return !isNaN(d.getTime()) && d.toDateString() === now.toDateString(); };
   const weekAgo = new Date(now.getTime() - 7 * 864e5);
-  const fmtTime = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); };
+  const pending = bookings.filter((b) => b.status === "requested");
   const clockedIn = shifts.filter((s) => s.clockIn && !s.clockOut);
   const todays = shifts.filter((s) => sameDay(s.start)).sort((a, b) => a.start.localeCompare(b.start));
-  const revenue = invoices.filter((i) => i.status === "paid" && new Date(i.createdAt) >= weekAgo)
-    .reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
+  const revenue = invoices.filter((i) => i.status === "paid" && new Date(i.createdAt) >= weekAgo).reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
+  const outstanding = invoices.filter((i) => i.status === "unpaid").reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
 
-  const Stat = ({ label, val, go }: { label: string; val: string; go: string }) => (
-    <button onClick={() => onGo(go)} className="card text-left transition hover:border-brand">
-      <div className="text-3xl font-semibold text-brand">{val}</div>
+  const steps = [
+    { done: services.some((s) => s.rate), label: "Set your service rates", hint: "Turn on the services you offer and price them.", go: "services" },
+    { done: caregivers.length > 0, label: "Invite your caregivers", hint: "Share your agency code so staff can join.", go: "staff" },
+    { done: clients.length > 0, label: "Add your first client", hint: "A family household with the people they care for.", go: "clients" },
+    { done: bookings.some((b) => b.status !== "requested" && b.status !== "declined"), label: "Schedule a booking", hint: "Approve a request and assign a caregiver.", go: "schedule" },
+  ];
+  const remaining = steps.filter((s) => !s.done);
+
+  const Stat = ({ label, val, go, tone = "brand" }: { label: string; val: string; go: string; tone?: string }) => (
+    <button onClick={() => onGo(go)} className="card card-hover text-left">
+      <div className={`text-3xl font-semibold ${tone === "ok" ? "text-ok" : tone === "gold" ? "text-gold-dark" : "text-brand"}`}>{val}</div>
       <div className="mt-1 text-sm text-ink-mid">{label}</div>
     </button>
   );
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Pending approvals" val={String(pending.length)} go="approvals" />
-        <Stat label="Clocked in now" val={String(clockedIn.length)} go="schedule" />
-        <Stat label="Today's shifts" val={String(todays.length)} go="calendar" />
-        <Stat label="Revenue this week" val={"$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" />
+      {/* Welcome */}
+      <div className="card hero-gradient !border-0 text-white">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{tenant?.plan ? `${tenant.plan} plan` : "Welcome"}</p>
+        <h2 className="mt-1 font-serif text-3xl">{tenant?.name || "Your agency"}</h2>
+        <p className="mt-2 max-w-xl text-sm text-white/80">Approve bookings, keep your calendar full, sign care documents, and pay your team — all in one place.</p>
+      </div>
+
+      {/* Getting started */}
+      {remaining.length > 0 && (
+        <div className="card">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-serif text-lg text-ink">Getting started</h3>
+            <span className="badge-brand">{steps.length - remaining.length}/{steps.length} done</span>
+          </div>
+          <div className="space-y-2">
+            {steps.map((s) => (
+              <button key={s.label} onClick={() => onGo(s.go)} className="flex w-full items-center gap-3 rounded-lg border border-rule px-3 py-2.5 text-left transition hover:border-brand/40">
+                <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${s.done ? "bg-ok text-white" : "border-2 border-rule-dark text-transparent"}`}><Icon name="check" size={14} /></span>
+                <span className="flex-1">
+                  <span className={`block text-sm font-medium ${s.done ? "text-ink-light line-through" : "text-ink"}`}>{s.label}</span>
+                  {!s.done && <span className="block text-xs text-ink-light">{s.hint}</span>}
+                </span>
+                {!s.done && <Icon name="chevron" size={16} className="text-ink-light" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ShareCode joinCode={tenant?.joinCode} />
+
+      {/* KPIs */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat label="Pending approvals" val={String(pending.length)} go="schedule" tone={pending.length ? "gold" : "brand"} />
+        <Stat label="Clocked in now" val={String(clockedIn.length)} go="schedule" tone="ok" />
+        <Stat label="Today's shifts" val={String(todays.length)} go="schedule" />
+        <Stat label="Revenue this week" val={"$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" tone="ok" />
+        <Stat label="Active caregivers" val={String(caregivers.length)} go="staff" />
+        <Stat label="Client households" val={String(clients.length)} go="clients" />
+        <Stat label="Outstanding invoices" val={"$" + outstanding.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" tone={outstanding ? "gold" : "brand"} />
+        <Stat label="Leads in pipeline" val={leadCount.toLocaleString()} go="leads" />
       </div>
 
       {pending.length > 0 && (
-        <div className="card flex items-center justify-between">
-          <div className="text-sm"><b className="text-ink">{pending.length}</b> <span className="text-ink-mid">booking {pending.length === 1 ? "request" : "requests"} waiting for approval</span></div>
-          <button onClick={() => onGo("approvals")} className="btn-primary">Review</button>
+        <div className="card flex items-center justify-between border-gold/40 bg-gold/5">
+          <div className="text-sm"><b className="text-ink">{pending.length}</b> <span className="text-ink-mid">booking {pending.length === 1 ? "request" : "requests"} waiting for your approval</span></div>
+          <button onClick={() => onGo("schedule")} className="btn-primary btn-sm">Review now</button>
         </div>
       )}
 
@@ -122,7 +223,7 @@ function Dashboard({ pending, shifts, invoices, clients, caregivers, onGo }: {
             <ul className="space-y-3">
               {clockedIn.map((s) => (
                 <li key={s.shiftId} className="flex items-center gap-3 text-sm">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-ok" />
+                  <span className="stat-dot bg-ok animate-pulse" />
                   <span><b className="text-ink">{s.caregiverName || "Caregiver"}</b> <span className="text-ink-mid">· {s.recipientName || "client"} · {s.serviceName}</span></span>
                   <span className="ml-auto text-xs text-ink-light">since {fmtTime(s.clockIn)}</span>
                 </li>
@@ -138,72 +239,258 @@ function Dashboard({ pending, shifts, invoices, clients, caregivers, onGo }: {
                 <li key={s.shiftId} className="flex items-center gap-3 text-sm">
                   <span className="w-16 shrink-0 tabular-nums text-ink-mid">{fmtTime(s.start)}</span>
                   <span><b className="text-ink">{s.serviceName}</b> <span className="text-ink-mid">· {s.recipientName || "client"} · {s.caregiverName || "Unassigned"}</span></span>
-                  <span className={"ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold " + (s.status === "completed" ? "bg-ok/10 text-ok" : s.status === "in_progress" ? "bg-gold/15 text-gold-dark" : "bg-brand-light text-brand")}>{s.status.replace("_", " ")}</span>
+                  <span className={`ml-auto shrink-0 ${statusBadge[s.status] || "badge-brand"}`}>{s.status.replace("_", " ")}</span>
                 </li>
               ))}
             </ul>
           )}
         </div>
       </div>
-
-      <div className="text-sm text-ink-light">Roster: <b className="text-ink-mid">{clients.length}</b> clients · <b className="text-ink-mid">{caregivers.length}</b> caregivers</div>
     </div>
   );
 }
 
-function Approvals({ pending, caregivers, onChange }: { pending: Booking[]; caregivers: Caregiver[]; onChange: () => void }) {
+// ---------------------------------------------------------------- schedule (merged calendar + bookings + approvals)
+function Schedule({ bookings, caregivers, shifts, onChange }: { bookings: Booking[]; caregivers: Caregiver[]; shifts: Shift[]; onChange: () => void }) {
+  const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [selId, setSelId] = useState<string | null>(null);
+  const pending = bookings.filter((b) => b.status === "requested");
+  const live = bookings.filter((b) => b.status !== "declined" && b.status !== "cancelled");
+  const selected = bookings.find((b) => b.bookingId === selId) || null;
+
+  const events = live.filter((b) => b.start).map((b) => ({ id: b.bookingId, date: b.start, label: b.serviceName, sub: b.recipientName, tone: statusTone[b.status] || "brand" }));
+
+  // list grouped by day
+  const groups: Record<string, Booking[]> = {};
+  for (const b of live.slice().sort((a, b) => a.start.localeCompare(b.start))) {
+    const day = b.start ? fmtDate(b.start) : "Unscheduled";
+    (groups[day] ||= []).push(b);
+  }
+
   return (
-    <div className="space-y-3">
-      {pending.length === 0 && <div className="card"><p className="text-sm text-ink-light">No pending requests.</p></div>}
-      {pending.map((b) => <ApprovalRow key={b.bookingId} b={b} caregivers={caregivers} onChange={onChange} />)}
+    <div className="space-y-5">
+      {pending.length > 0 && (
+        <div className="card border-gold/40 bg-gold/5">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-serif text-lg text-ink">{pending.length} request{pending.length === 1 ? "" : "s"} to review</h3>
+          </div>
+          <div className="space-y-2">
+            {pending.map((b) => (
+              <button key={b.bookingId} onClick={() => setSelId(b.bookingId)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-rule bg-white px-3 py-2.5 text-left transition hover:border-brand/40">
+                <span>
+                  <span className="block text-sm font-medium text-ink">{b.serviceName} <span className="text-ink-light">for {b.recipientName}</span></span>
+                  <span className="block text-xs text-ink-light">{b.householdName}{b.start ? ` · ${fmtDate(b.start)} ${fmtTime(b.start)}` : ""}</span>
+                </span>
+                <span className="badge-warn">Review</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="inline-flex rounded-lg border border-rule bg-white p-1">
+        <button onClick={() => setView("calendar")} className={view === "calendar" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Calendar</button>
+        <button onClick={() => setView("list")} className={view === "list" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>List</button>
+      </div>
+
+      {view === "calendar" ? (
+        <CalendarView events={events} onSelect={setSelId} />
+      ) : (
+        <div className="space-y-6">
+          {Object.keys(groups).length === 0 && <div className="card"><p className="text-sm text-ink-light">No bookings yet. When a family requests care it appears here for approval.</p></div>}
+          {Object.entries(groups).map(([day, list]) => (
+            <div key={day}>
+              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-light">{day}</h3>
+              <div className="space-y-2">
+                {list.map((b) => (
+                  <button key={b.bookingId} onClick={() => setSelId(b.bookingId)} className="card card-hover flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-medium text-ink">{b.serviceName} <span className="text-ink-light">for {b.recipientName}</span></div>
+                      <div className="text-xs text-ink-light">{fmtTime(b.start)} · {caregivers.find((c) => c.userId === b.caregiverId)?.name || "Unassigned"}{b.householdName ? ` · ${b.householdName}` : ""}</div>
+                    </div>
+                    <span className={statusBadge[b.status] || "badge-brand"}>{b.status.replace("_", " ")}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <BookingDrawer booking={selected} caregivers={caregivers} shifts={shifts} onClose={() => setSelId(null)} onChange={() => { setSelId(null); onChange(); }} />
     </div>
   );
 }
 
-function ApprovalRow({ b, caregivers, onChange }: { b: Booking; caregivers: Caregiver[]; onChange: () => void }) {
+// Warn if the chosen caregiver already has a shift within ±2h, or the time is
+// outside the availability they set.
+function scheduleWarnings(caregiver: Caregiver | undefined, whenIso: string, shifts: Shift[], bookingId: string): string[] {
+  if (!caregiver || !whenIso) return [];
+  const w: string[] = [];
+  const t = new Date(whenIso).getTime();
+  const clash = shifts.find((s) => s.caregiverId === caregiver.userId && (s.status === "scheduled" || s.status === "in_progress") && s.start && Math.abs(new Date(s.start).getTime() - t) < 2 * 3600e3);
+  if (clash) w.push(`${caregiver.name || "This caregiver"} already has a shift near this time (${fmtDate(clash.start)} ${fmtTime(clash.start)}).`);
+  try {
+    const a = caregiver.availability ? JSON.parse(caregiver.availability) : null;
+    if (a && Array.isArray(a.days)) {
+      const d = new Date(whenIso);
+      const hm = d.toTimeString().slice(0, 5);
+      if (!a.days.includes(d.getDay())) w.push(`${caregiver.name || "This caregiver"} isn't available on ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]}s.`);
+      else if (a.from && a.to && (hm < a.from || hm > a.to)) w.push(`Outside their stated hours (${a.from}–${a.to}).`);
+    }
+  } catch { /* ignore */ }
+  return w;
+}
+
+function BookingDrawer({ booking, caregivers, shifts, onClose, onChange }: { booking: Booking | null; caregivers: Caregiver[]; shifts: Shift[]; onClose: () => void; onChange: () => void }) {
   const [caregiverId, setCaregiverId] = useState("");
+  const [when, setWhen] = useState("");
   const [busy, setBusy] = useState(false);
-  async function act(action: string) {
+  useEffect(() => { if (booking) { setCaregiverId(booking.caregiverId || ""); setWhen(toLocalInput(booking.start)); } }, [booking]);
+  if (!booking) return null;
+  const warnings = scheduleWarnings(caregivers.find((c) => c.userId === caregiverId), when ? new Date(when).toISOString() : "", shifts, booking.bookingId);
+
+  async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(true);
-    try { await apiPost("/api/bookings", { action, bookingId: b.bookingId, caregiverId }); onChange(); }
+    try { await apiPost("/api/bookings", { action, bookingId: booking!.bookingId, ...extra }); onChange(); }
     finally { setBusy(false); }
   }
+  const isRequested = booking.status === "requested";
+  const canManage = booking.status === "scheduled" || booking.status === "requested";
+
   return (
-    <div className="card">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="font-medium text-ink">{b.serviceName} <span className="text-ink-light">for {b.recipientName}</span></div>
-          <div className="text-xs text-ink-light">{b.householdName} · {b.start ? new Date(b.start).toLocaleString() : ""}{b.notes ? ` · ${b.notes}` : ""}</div>
-          {b.credential !== "none" && <div className="mt-1 text-xs font-semibold text-gold-dark">Requires: {b.credential.toUpperCase()}</div>}
-        </div>
+    <Drawer open={!!booking} onClose={onClose} title={booking.serviceName || "Booking"}>
+      <div className="space-y-5">
         <div className="flex items-center gap-2">
-          <select className="field !w-auto" value={caregiverId} onChange={(e) => setCaregiverId(e.target.value)}>
-            <option value="">Assign caregiver…</option>
-            {caregivers.map((c) => <option key={c.userId} value={c.userId}>{c.name || c.email}{c.credentials ? ` (${c.credentials})` : ""}</option>)}
-          </select>
-          <button onClick={() => act("approve")} disabled={busy} className="btn-primary">Approve</button>
-          <button onClick={() => act("decline")} disabled={busy} className="btn-ghost">Decline</button>
+          <span className={statusBadge[booking.status] || "badge-brand"}>{booking.status.replace("_", " ")}</span>
+          {booking.credential && booking.credential !== "none" && <span className="badge-gold">Requires {booking.credential.toUpperCase()}</span>}
+        </div>
+
+        <dl className="space-y-2 text-sm">
+          <Row k="Care recipient" v={booking.recipientName} />
+          <Row k="Household" v={booking.householdName} />
+          <Row k="When" v={booking.start ? `${fmtDate(booking.start)} at ${fmtTime(booking.start)}` : "Not set"} />
+          <Row k="Caregiver" v={caregivers.find((c) => c.userId === booking.caregiverId)?.name || "Unassigned"} />
+          {booking.notes && <Row k="Notes" v={booking.notes} />}
+        </dl>
+
+        {canManage && (
+          <div className="space-y-4 border-t border-rule pt-5">
+            <div>
+              <label className="label">Assign caregiver</label>
+              <select className="field" value={caregiverId} onChange={(e) => setCaregiverId(e.target.value)}>
+                <option value="">Unassigned</option>
+                {caregivers.map((c) => <option key={c.userId} value={c.userId}>{c.name || c.email}{c.credentials ? ` (${c.credentials})` : ""}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Date & time</label>
+              <input type="datetime-local" className="field" value={when} onChange={(e) => setWhen(e.target.value)} />
+            </div>
+            {warnings.length > 0 && (
+              <div className="rounded-lg border border-gold/40 bg-gold/10 px-3 py-2 text-xs text-gold-dark">
+                {warnings.map((w, i) => <div key={i}>{w}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-2">
+        {isRequested ? (
+          <>
+            <button onClick={() => act("approve", { caregiverId })} disabled={busy} className="btn-primary flex-1">Approve</button>
+            <button onClick={() => act("decline")} disabled={busy} className="btn-ghost">Decline</button>
+          </>
+        ) : booking.status === "scheduled" ? (
+          <>
+            <button onClick={() => act("assign", { caregiverId })} disabled={busy} className="btn-primary flex-1">Save caregiver</button>
+            {when && when !== toLocalInput(booking.start) && <button onClick={() => act("reschedule", { start: new Date(when).toISOString() })} disabled={busy} className="btn-soft">Reschedule</button>}
+            <button onClick={() => act("cancel")} disabled={busy} className="btn-danger">Cancel</button>
+          </>
+        ) : (
+          <p className="text-sm text-ink-light">This booking is {booking.status}. No further action needed.</p>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+function Row({ k, v }: { k: string; v: string }) {
+  return <div className="flex justify-between gap-4"><dt className="shrink-0 text-ink-light">{k}</dt><dd className="text-right font-medium text-ink">{v}</dd></div>;
+}
+
+// ---------------------------------------------------------------- reports
+function Reports({ bookings, shifts, invoices, leadCounts }: {
+  bookings: Booking[]; shifts: Shift[];
+  invoices: { amount: string; status: string; createdAt: string }[];
+  leadCounts: Record<string, number>;
+}) {
+  const now = Date.now();
+  const bookingBars: { label: string; value: number; tone: string }[] = [];
+  const revenueBars: { label: string; value: number; tone: string }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const hi = now - i * 7 * 864e5, lo = hi - 7 * 864e5;
+    const label = new Date(lo).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const bk = bookings.filter((b) => { const t = new Date(b.start).getTime(); return t > lo && t <= hi; }).length;
+    const rev = invoices.filter((inv) => inv.status === "paid" && (() => { const t = new Date(inv.createdAt).getTime(); return t > lo && t <= hi; })()).reduce((a, inv) => a + (parseFloat(inv.amount) || 0), 0);
+    bookingBars.push({ label, value: bk, tone: "brand" });
+    revenueBars.push({ label, value: Math.round(rev), tone: "ok" });
+  }
+  const hoursByCg: Record<string, number> = {};
+  for (const s of shifts) if (s.clockIn && s.clockOut) { const h = Math.max(0, (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 3600000); hoursByCg[s.caregiverName || "Unassigned"] = (hoursByCg[s.caregiverName || "Unassigned"] || 0) + h; }
+  const cgBars = Object.entries(hoursByCg).map(([label, v]) => ({ label, value: Math.round(v * 10) / 10, tone: "purple" }));
+  const stageTone: Record<string, string> = { new: "brand", contacted: "purple", consultation: "gold", client: "ok", lost: "danger" };
+  const pipe = ["new", "contacted", "consultation", "client", "lost"].map((s) => ({ label: s, value: leadCounts[s] || 0, tone: stageTone[s] }));
+  const converted = leadCounts.client || 0;
+  const totalLeads = Object.values(leadCounts).reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="card"><h3 className="mb-4 font-serif text-lg text-ink">Bookings — last 6 weeks</h3><BarChart data={bookingBars} /></div>
+        <div className="card"><h3 className="mb-4 font-serif text-lg text-ink">Revenue collected — last 6 weeks</h3><BarChart data={revenueBars} prefix="$" /></div>
+      </div>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="card">
+          <h3 className="mb-4 font-serif text-lg text-ink">Caregiver hours</h3>
+          {cgBars.length ? <BarChart data={cgBars} prefix="" /> : <p className="text-sm text-ink-light">No completed shifts yet.</p>}
+        </div>
+        <div className="card">
+          <h3 className="mb-4 font-serif text-lg text-ink">Lead pipeline</h3>
+          {totalLeads ? <><Donut segments={pipe} /><p className="mt-4 text-sm text-ink-mid">Conversion: <b className="text-ink">{totalLeads ? Math.round((converted / totalLeads) * 100) : 0}%</b> of {totalLeads.toLocaleString()} leads became clients.</p></> : <p className="text-sm text-ink-light">Import leads to see your pipeline.</p>}
         </div>
       </div>
     </div>
   );
 }
 
-function Clients({ clients }: { clients: Client[] }) {
+// ---------------------------------------------------------------- clients
+function Clients({ clients, caregivers, joinCode, onChange }: { clients: Client[]; caregivers: Caregiver[]; joinCode?: string; onChange: () => void }) {
+  async function assign(householdId: string, caregiverId: string) {
+    await apiPost("/api/agency", { action: "assign_caregiver", householdId, caregiverId }); onChange();
+  }
   return (
-    <div className="space-y-3">
-      {clients.length === 0 && <div className="card"><p className="text-sm text-ink-light">No client households yet.</p></div>}
+    <div className="space-y-4">
+      <ShareCode joinCode={joinCode} />
+      {clients.length === 0 && <div className="card"><p className="text-sm text-ink-light">No client households yet. Families join with your agency code, or you can add them after a consultation.</p></div>}
       {clients.map((c) => (
         <div key={c.householdId} className="card">
           <div className="mb-2 flex items-center justify-between">
             <div className="font-medium text-ink">{c.name}</div>
             <div className="text-xs text-ink-light">{c.city}</div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="mb-3 flex flex-wrap gap-2">
             {c.recipients.map((r) => (
-              <span key={r.recipientId} className="rounded-md bg-brand-light px-2 py-1 text-xs text-brand">{r.name} · {r.type}</span>
+              <span key={r.recipientId} className="badge-brand">{r.name} · {r.type}</span>
             ))}
-            {c.recipients.length === 0 && <span className="text-xs text-ink-light">No profiles yet</span>}
+            {c.recipients.length === 0 && <span className="text-xs text-ink-light">No care profiles yet</span>}
+          </div>
+          <div className="flex items-center gap-2 border-t border-rule pt-3">
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-light">Primary caregiver</span>
+            <select className="field field-sm !w-auto" value={c.primaryCaregiverId || ""} onChange={(e) => assign(c.householdId, e.target.value)}>
+              <option value="">Unassigned</option>
+              {caregivers.map((cg) => <option key={cg.userId} value={cg.userId}>{cg.name || cg.email}</option>)}
+            </select>
           </div>
         </div>
       ))}
@@ -211,60 +498,26 @@ function Clients({ clients }: { clients: Client[] }) {
   );
 }
 
-function Staff({ caregivers }: { caregivers: Caregiver[] }) {
+// ---------------------------------------------------------------- staff
+function Staff({ caregivers, joinCode }: { caregivers: Caregiver[]; joinCode?: string }) {
   return (
-    <div className="space-y-2">
-      {caregivers.length === 0 && <div className="card"><p className="text-sm text-ink-light">No caregivers have signed up yet.</p></div>}
+    <div className="space-y-4">
+      <ShareCode joinCode={joinCode} />
+      {caregivers.length === 0 && <div className="card"><p className="text-sm text-ink-light">No caregivers have joined yet. Share your agency code above — when they sign up as a caregiver with it, they appear here.</p></div>}
       {caregivers.map((c) => (
         <div key={c.userId} className="card flex items-center justify-between">
           <div>
             <div className="font-medium text-ink">{c.name || c.email}</div>
             <div className="text-xs text-ink-light">{c.email}{c.phone ? ` · ${c.phone}` : ""}{c.credentials ? ` · ${c.credentials}` : ""}</div>
           </div>
-          <span className="rounded-md bg-brand-light px-2 py-1 text-xs font-semibold capitalize text-brand">{c.status}</span>
+          <span className="badge-ok">{c.status}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function Schedule({ shifts }: { shifts: Shift[] }) {
-  if (shifts.length === 0) return <div className="card"><p className="text-sm text-ink-light">No shifts scheduled yet. Approve a booking to create one.</p></div>;
-  // Group by calendar day.
-  const groups: Record<string, Shift[]> = {};
-  for (const s of shifts) {
-    const day = s.start ? new Date(s.start).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }) : "Unscheduled";
-    (groups[day] ||= []).push(s);
-  }
-  const statusColor: Record<string, string> = {
-    scheduled: "bg-brand-light text-brand", in_progress: "bg-gold/20 text-gold-dark",
-    completed: "bg-ok/15 text-ok", open: "bg-rule text-ink-mid",
-  };
-  return (
-    <div className="space-y-6">
-      {Object.entries(groups).map(([day, list]) => (
-        <div key={day}>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-light">{day}</h3>
-          <div className="space-y-2">
-            {list.map((s) => (
-              <div key={s.shiftId} className="card flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-ink">{s.serviceName} <span className="text-ink-light">for {s.recipientName}</span></div>
-                  <div className="text-xs text-ink-light">
-                    {s.start ? new Date(s.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-                    {" · "}{s.caregiverName || "Unassigned"}{s.householdName ? ` · ${s.householdName}` : ""}
-                  </div>
-                </div>
-                <span className={`rounded-md px-2 py-1 text-xs font-semibold capitalize ${statusColor[s.status] || "bg-brand-light text-brand"}`}>{s.status.replace("_", " ")}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
+// ---------------------------------------------------------------- services
 function Services({ services, onChange }: { services: Service[]; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   async function seed() {
@@ -311,25 +564,26 @@ function ServiceRow({ s, onChange }: { s: Service; onChange: () => void }) {
       </div>
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1 text-sm text-ink-mid">$
-          <input className="field !w-20 !py-1" value={rate} onChange={(e) => { setRate(e.target.value); setDirty(true); }} placeholder="rate" />
+          <input className="field field-sm !w-20" value={rate} onChange={(e) => { setRate(e.target.value); setDirty(true); }} placeholder="rate" />
           <span className="text-xs text-ink-light">/{s.pricingModel}</span>
         </div>
         <label className="flex items-center gap-1 text-xs text-ink-mid">
           <input type="checkbox" checked={active} onChange={(e) => { setActive(e.target.checked); setDirty(true); }} /> Active
         </label>
-        {dirty && <button onClick={save} className="btn-primary !px-3 !py-1 text-xs">Save</button>}
+        {dirty && <button onClick={save} className="btn-primary btn-sm">Save</button>}
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------------- money
 interface Invoice { invoiceId: string; amount: string; status: string; serviceName: string; recipientName: string; householdName: string; createdAt: string }
 interface PayRow { userId: string; name: string; shifts: number; hours: number; gross: number }
 
-function Money() {
+function Money({ onGo }: { onGo: (k: string) => void }) {
   const [connect, setConnect] = useState<{ connected: boolean; chargesEnabled?: boolean } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [pay, setPay] = useState<{ rows: PayRow[]; total: number; backboneReady: boolean }>({ rows: [], total: 0, backboneReady: false });
+  const [pay, setPay] = useState<{ rows: PayRow[]; total: number; backboneReady: boolean; provider?: string }>({ rows: [], total: 0, backboneReady: false });
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
 
@@ -340,9 +594,15 @@ function Money() {
       apiGet("/api/payroll").catch(() => ({ rows: [], total: 0, backboneReady: false })),
     ]);
     setConnect(c); setInvoices(inv.invoices || []);
-    setPay({ rows: pr.rows || [], total: pr.total || 0, backboneReady: !!pr.backboneReady });
+    setPay({ rows: pr.rows || [], total: pr.total || 0, backboneReady: !!pr.backboneReady, provider: pr.provider || "" });
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  async function connectPayroll(provider: string) {
+    setBusy("payroll");
+    try { const d = await apiPost("/api/payroll", { action: "connect_payroll", provider }); if (d.url) window.location.href = d.url; else { setNote(provider === "gusto" ? "Payroll connected via Gusto." : "Care Royal Payroll enabled."); load(); } }
+    catch (e) { setNote(e instanceof Error ? e.message : "Failed"); } finally { setBusy(""); }
+  }
 
   async function onboard() {
     setBusy("connect");
@@ -363,10 +623,6 @@ function Money() {
     finally { setBusy(""); }
   }
 
-  const statusColor: Record<string, string> = {
-    unpaid: "bg-gold/20 text-gold-dark", paid: "bg-ok/15 text-ok", void: "bg-rule text-ink-mid",
-  };
-
   return (
     <div className="space-y-6">
       {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
@@ -386,7 +642,7 @@ function Money() {
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-serif text-lg text-ink">Invoices</h3>
-          <button onClick={generate} disabled={busy === "gen"} className="btn-ghost">{busy === "gen" ? "…" : "Generate from completed shifts"}</button>
+          <button onClick={generate} disabled={busy === "gen"} className="btn-ghost btn-sm">{busy === "gen" ? "…" : "Generate from completed shifts"}</button>
         </div>
         {invoices.length === 0 && <p className="text-sm text-ink-light">No invoices yet.</p>}
         <div className="space-y-2">
@@ -396,7 +652,7 @@ function Money() {
                 <div className="text-ink">${inv.amount} <span className="text-ink-light">— {inv.serviceName} for {inv.recipientName} ({inv.householdName})</span></div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`rounded-md px-2 py-1 text-xs font-semibold capitalize ${statusColor[inv.status] || ""}`}>{inv.status}</span>
+                <span className={inv.status === "paid" ? "badge-ok" : inv.status === "void" ? "badge-muted" : "badge-warn"}>{inv.status}</span>
                 {inv.status === "unpaid" && (
                   <>
                     <button onClick={() => invAction(inv.invoiceId, "mark_paid")} className="text-xs font-semibold text-ok">Mark paid</button>
@@ -412,8 +668,32 @@ function Money() {
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-serif text-lg text-ink">Payroll</h3>
-          <button onClick={runPayroll} disabled={busy === "run"} className="btn-primary">{busy === "run" ? "…" : "Run payroll"}</button>
+          {pay.backboneReady && <button onClick={runPayroll} disabled={busy === "run"} className="btn-primary btn-sm">{busy === "run" ? "…" : "Run payroll"}</button>}
         </div>
+        {!pay.backboneReady ? (
+          <div className="mb-4 space-y-3">
+            <p className="text-sm text-ink-mid">Choose how you run payroll. Either way Care Royal never holds your funds — gross pay below comes from your timesheets.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-rule bg-paper p-4">
+                <div className="font-medium text-ink">Care Royal Payroll</div>
+                <p className="mt-1 text-xs text-ink-light">Generate branded paystubs, verification letters, invoices & receipts in-app — with real tax math. No external account.</p>
+                <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-primary btn-sm mt-3">Use Care Royal Payroll</button>
+              </div>
+              <div className="rounded-lg border border-rule bg-paper p-4">
+                <div className="font-medium text-ink">Connect Gusto</div>
+                <p className="mt-1 text-xs text-ink-light">Bring your own Gusto account for full-service payroll, direct deposit and tax filing under your agency.</p>
+                <button onClick={() => connectPayroll("gusto")} disabled={busy === "payroll"} className="btn-ghost btn-sm mt-3">Connect Gusto</button>
+              </div>
+            </div>
+          </div>
+        ) : pay.provider === "gusto" ? (
+          <p className="mb-3 text-sm text-ok">Payroll connected via Gusto. Gross pay below syncs to your account.</p>
+        ) : (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-ok/10 px-3 py-2">
+            <span className="text-sm text-ok">Care Royal Payroll is on. Create paystubs & pay documents in the Document Studio.</span>
+            <button onClick={() => onGo("documents")} className="btn-soft btn-sm">Open Document Studio</button>
+          </div>
+        )}
         {pay.rows.length === 0 && <p className="text-sm text-ink-light">No completed shifts to pay yet.</p>}
         <div className="space-y-2">
           {pay.rows.map((r) => (
@@ -428,13 +708,13 @@ function Money() {
             <span>Total gross</span><span>${pay.total.toFixed(2)}</span>
           </div>
         )}
-        {!pay.backboneReady && <p className="mt-3 text-xs text-ink-light">Connect a payroll backbone (Check or Gusto Embedded) to issue payouts. Timesheets and gross pay are ready now.</p>}
       </div>
     </div>
   );
 }
 
-interface Doc { docId: string; title: string; templateLabel: string; status: string; householdName: string; signedBy: string; signedAt: string; createdAt: string }
+// ---------------------------------------------------------------- documents
+interface Doc { docId: string; template: string; templateLabel: string; title: string; content: string; status: string; signedBy: string; signedAt: string; signature?: string; householdName: string; recipientName: string; createdAt: string }
 
 const DOC_TEMPLATES = [
   { key: "service_agreement", label: "Service Agreement" },
@@ -443,7 +723,8 @@ const DOC_TEMPLATES = [
   { key: "hipaa", label: "HIPAA Acknowledgment" },
 ];
 
-function AgencyDocs({ clients, onChange }: { clients: Client[]; onChange: () => void }) {
+function AgencyDocs({ clients, tenant, caregivers, onChange }: { clients: Client[]; tenant: Tenant | null; caregivers: Caregiver[]; onChange: () => void }) {
+  const [view, setView] = useState<"requests" | "create">("requests");
   const [docs, setDocs] = useState<Doc[]>([]);
   const [householdId, setHouseholdId] = useState("");
   const [template, setTemplate] = useState("service_agreement");
@@ -464,6 +745,15 @@ function AgencyDocs({ clients, onChange }: { clients: Client[]; onChange: () => 
 
   return (
     <div className="space-y-6">
+      <div className="inline-flex rounded-lg border border-rule bg-white p-1">
+        <button onClick={() => setView("requests")} className={view === "requests" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Signature requests</button>
+        <button onClick={() => setView("create")} className={view === "create" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Create & download</button>
+      </div>
+
+      {view === "create" ? (
+        <DocStudio tenantId={tenant?.joinCode ? tenant.joinCode : "demo"} tenantName={tenant?.name} caregivers={caregivers.map((c) => ({ userId: c.userId, name: c.name, email: c.email }))} />
+      ) : (
+      <div className="space-y-6">
       <div className="card space-y-4">
         <h3 className="font-serif text-lg text-ink">Send a document for signature</h3>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -490,18 +780,23 @@ function AgencyDocs({ clients, onChange }: { clients: Client[]; onChange: () => 
               <div className="font-medium text-ink">{d.title}<span className="text-ink-light"> — {d.householdName}</span></div>
               <div className="text-xs text-ink-light">{d.status === "signed" ? `Signed by ${d.signedBy} on ${d.signedAt ? new Date(d.signedAt).toLocaleDateString() : ""}` : "Awaiting signature"}</div>
             </div>
-            <span className={`rounded-md px-2 py-1 text-xs font-semibold ${d.status === "signed" ? "bg-ok/15 text-ok" : "bg-gold/20 text-gold-dark"}`}>{d.status === "signed" ? "Signed" : "Pending"}</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => printDoc(d)} className="btn-ghost btn-sm">Download</button>
+              <span className={d.status === "signed" ? "badge-ok" : "badge-warn"}>{d.status === "signed" ? "Signed" : "Pending"}</span>
+            </div>
           </div>
         ))}
       </div>
+      </div>
+      )}
     </div>
   );
 }
 
+// ---------------------------------------------------------------- leads
 interface Lead { leadId: string; name: string; email: string; phone: string; city: string; zip: string; stage: string }
 const STAGES = ["new", "contacted", "consultation", "client", "lost"];
 
-// Minimal CSV parser (handles quoted fields and commas/newlines within quotes).
 function parseCsv(text: string): string[][] {
   const rows: string[][] = []; let row: string[] = []; let cell = ""; let q = false;
   for (let i = 0; i < text.length; i++) {
@@ -585,9 +880,9 @@ function Leads() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => setStage("")} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${stage === "" ? "bg-brand text-white" : "bg-brand-light text-brand"}`}>All</button>
+        <button onClick={() => setStage("")} className={stage === "" ? "chip-on" : "chip-off"}>All</button>
         {STAGES.map((s) => (
-          <button key={s} onClick={() => setStage(s)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize ${stage === s ? "bg-brand text-white" : "bg-brand-light text-brand"}`}>
+          <button key={s} onClick={() => setStage(s)} className={`capitalize ${stage === s ? "chip-on" : "chip-off"}`}>
             {s} ({counts[s] || 0})
           </button>
         ))}
@@ -603,7 +898,7 @@ function Leads() {
               <div className="font-medium text-ink">{l.name || "(no name)"}</div>
               <div className="text-xs text-ink-light">{l.email}{l.phone ? ` · ${l.phone}` : ""}{l.city ? ` · ${l.city}` : ""}{l.zip ? ` ${l.zip}` : ""}</div>
             </div>
-            <select className="field !w-auto !py-1 text-xs" value={l.stage} onChange={(e) => setLeadStage(l.leadId, e.target.value)}>
+            <select className="field field-sm !w-auto" value={l.stage} onChange={(e) => setLeadStage(l.leadId, e.target.value)}>
               {STAGES.map((s) => <option key={s} value={s} className="capitalize">{s}</option>)}
             </select>
           </div>
