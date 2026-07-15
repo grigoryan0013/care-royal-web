@@ -56,6 +56,9 @@ interface Db {
   CaregiverProfiles: Row[]; Bookings: Row[]; Shifts: Row[]; Invoices: Row[];
   Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Messages: Row[]; QuoteRequests: Row[];
   CaregiverApplications: Row[]; Reviews: Row[]; Events: Row[]; Tenant: Row;
+  // roadmap features (optional so pre-existing demo DBs upgrade cleanly)
+  Payers?: Row[]; Authorizations?: Row[]; Claims?: Row[]; Payouts?: Row[];
+  ShiftSwaps?: Row[]; Journal?: Row[];
 }
 
 function seedIfEmpty() {
@@ -172,7 +175,7 @@ function id(prefix: string) { return `${prefix}_${Math.random().toString(16).sli
 function ok() { return { ok: true }; }
 
 // ---- the mock API ------------------------------------------------------
-export async function demoHandle(method: string, path: string, body: Record<string, unknown> = {}) {
+export async function demoHandle(method: string, path: string, body: Record<string, unknown> = {}): Promise<any> {
   const db = read();
   const me = demoUser(getDemoRole());
   const p = path.split("?")[0];
@@ -235,7 +238,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   // ---- agency aggregate
   if (p === "/api/agency" && method === "GET") {
     const clients = db.Households.map((h) => ({ ...h, recipients: db.Recipients.filter((r) => r.householdId === h.householdId) }));
-    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", status: "active" }; });
+    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", bgCheckStatus: pr?.bgCheckStatus || "", status: "active" }; });
     return { clients, caregivers };
   }
   if (p === "/api/agency" && method === "POST") {
@@ -291,7 +294,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   if (p === "/api/invoices" && method === "GET") {
     let list = db.Invoices;
     if (me.role === "family") { const ids = myHouseholds().map((h) => h.householdId); list = list.filter((i) => ids.includes(i.householdId)); }
-    const enriched = list.map((inv) => { const b = db.Bookings.find((x) => x.bookingId === inv.bookingId) || {} as Row; return { ...inv, serviceName: svcById(b.serviceId)?.name || "", recipientName: rcpById(b.recipientId)?.name || "", householdName: hhById(inv.householdId)?.name || "" } as Row; }).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const enriched = list.map((inv) => { const b = db.Bookings.find((x) => x.bookingId === inv.bookingId) || {} as Row; return { ...inv, serviceName: svcById(b.serviceId)?.name || "", recipientName: rcpById(b.recipientId)?.name || "", householdName: hhById(inv.householdId)?.name || "" } as Row; }).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1));
     return { invoices: enriched };
   }
   if (p === "/api/invoices" && method === "POST") {
@@ -330,7 +333,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     let list = db.Documents;
     if (me.role === "family") { const ids = myHouseholds().map((h) => h.householdId); list = list.filter((d) => ids.includes(d.householdId)); }
     else if (me.role === "caregiver") list = list.filter((d) => d.subjectType === "caregiver" && d.subjectId === me.userId);
-    const enriched = list.map((d) => ({ ...d, templateLabel: d.title, householdName: hhById(d.householdId)?.name || "", recipientName: "" } as Row)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const enriched = list.map((d) => ({ ...d, templateLabel: d.title, householdName: hhById(d.householdId)?.name || "", recipientName: "" } as Row)).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1));
     return { documents: enriched };
   }
   if (p === "/api/documents" && method === "POST") {
@@ -392,6 +395,110 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     db.Waitlist.push({ waitlistId: id("wl"), type: String(body.type || "direct"), name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), region: String(body.region || ""), timeframe: String(body.timeframe || ""), details: JSON.stringify(body.details || {}), consent: "yes", createdAt: now() });
     write(db);
     return { ok: true };
+  }
+
+  // ---- ROADMAP FEATURES (mirror of fb.ts) --------------------------------
+  const arr = (k: keyof Db): Row[] => ((db[k] as Row[]) ||= [] as Row[]);
+
+  // Item 1: EVV + claims
+  if (p === "/api/payers") {
+    if (method === "GET") return { payers: arr("Payers").slice().sort((a, b) => (a.name < b.name ? -1 : 1)) };
+    if (body.action === "create") { const py = { payerId: id("payer"), tenantId: IDS.tenant, name: String(body.name || "Untitled payer"), type: String(body.type || "medicaid"), payerId2: String(body.payerId2 || ""), state: String(body.state || ""), evvFormat: String(body.evvFormat || "hhaexchange"), createdAt: now() }; arr("Payers").push(py); write(db); return { ok: true, payer: py }; }
+    if (body.action === "update") { const py = arr("Payers").find((x) => x.payerId === body.payerId); if (py) for (const k of ["name", "type", "payerId2", "state", "evvFormat"]) if (k in body) py[k] = String((body as Row)[k]); write(db); return ok(); }
+  }
+  if (p === "/api/authorizations") {
+    if (method === "GET") return { authorizations: arr("Authorizations").map((a) => ({ ...a, recipientName: rcpById(a.recipientId)?.name || "", serviceName: svcById(a.serviceId)?.name || "", payerName: arr("Payers").find((x) => x.payerId === a.payerId)?.name || "" })).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) };
+    if (body.action === "create") { const a = { authId: id("auth"), tenantId: IDS.tenant, payerId: String(body.payerId || ""), recipientId: String(body.recipientId || ""), serviceId: String(body.serviceId || ""), authNumber: String(body.authNumber || ""), unitsApproved: String(body.unitsApproved || "0"), unitsUsed: "0", startDate: String(body.startDate || ""), endDate: String(body.endDate || ""), createdAt: now() }; arr("Authorizations").push(a); write(db); return { ok: true, authorization: a }; }
+    if (body.action === "update") { const a = arr("Authorizations").find((x) => x.authId === body.authId); if (a) for (const k of ["payerId", "recipientId", "serviceId", "authNumber", "unitsApproved", "startDate", "endDate"]) if (k in body) a[k] = String((body as Row)[k]); write(db); return ok(); }
+  }
+  if (p === "/api/evv" && method === "GET") {
+    const rows = db.Shifts.filter((s) => s.status === "completed" && s.clockIn && s.clockOut).map((s) => { const b = db.Bookings.find((x) => x.bookingId === s.bookingId) || {} as Row; const r = rcpById(b.recipientId) || {} as Row; const h = hhById(b.householdId) || {} as Row; const svc = svcById(b.serviceId) || {} as Row; return { visitId: s.shiftId, date: (s.clockIn || "").slice(0, 10), clockIn: s.clockIn, clockOut: s.clockOut, hours: Math.round(hours(s) * 100) / 100, service: svc.name || "", billingCode: svc.billingCode || "", recipient: r.name || "", address: r.address || h.address || "", caregiver: usrById(s.caregiverId)?.name || "", gpsIn: s.gpsIn || "", gpsOut: s.gpsOut || "", verified: s.gpsIn && s.gpsOut ? "yes" : "manual" }; });
+    return { rows };
+  }
+  if (p === "/api/claims") {
+    if (method === "GET") return { claims: arr("Claims").map((c) => ({ ...c, recipientName: rcpById(c.recipientId)?.name || "", serviceName: svcById(c.serviceId)?.name || "", payerName: arr("Payers").find((x) => x.payerId === c.payerId)?.name || "" })).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) };
+    if (body.action === "generate") { const claimed = new Set(arr("Claims").map((c) => c.shiftId)); let created = 0; for (const s of db.Shifts) { if (s.status !== "completed" || claimed.has(s.shiftId)) continue; const b = db.Bookings.find((x) => x.bookingId === s.bookingId); if (!b) continue; const svc = svcById(b.serviceId); if (!svc || !svc.billingCode) continue; const auth = arr("Authorizations").find((a) => a.recipientId === b.recipientId && a.serviceId === b.serviceId); const rate = parseFloat(svc.payerRate || svc.rate || "0") || 0; const amt = svc.pricingModel === "hourly" ? rate * (hours(s) || 1) : rate; arr("Claims").push({ claimId: id("clm"), tenantId: IDS.tenant, shiftId: s.shiftId, payerId: auth?.payerId || "", recipientId: b.recipientId, serviceId: b.serviceId, authNumber: auth?.authNumber || "", billingCode: svc.billingCode, units: String(Math.max(1, Math.round(hours(s) || 1))), amount: (Math.round(amt * 100) / 100).toFixed(2), dateOfService: (s.clockIn || s.start || "").slice(0, 10), status: "ready", createdAt: now() }); created++; } write(db); return { ok: true, created }; }
+    if (body.action === "mark_submitted") { const c = arr("Claims").find((x) => x.claimId === body.claimId); if (c) c.status = "submitted"; write(db); return ok(); }
+    if (body.action === "mark_paid") { const c = arr("Claims").find((x) => x.claimId === body.claimId); if (c) c.status = "paid"; write(db); return ok(); }
+  }
+
+  // Item 2: instant pay
+  if (p === "/api/payouts") {
+    const rate = (uid: string) => cgRate(uid);
+    const accrued = (uid: string) => db.Shifts.filter((s) => s.status === "completed" && s.caregiverId === uid).reduce((a, s) => a + rate(uid) * (hours(s) || 1), 0);
+    const paidOut = (uid: string) => arr("Payouts").filter((x) => x.caregiverId === uid && x.status !== "failed").reduce((a, x) => a + (parseFloat(x.gross) || 0), 0);
+    const FEE = 1.99;
+    if (method === "GET") {
+      if (me.role === "caregiver") { const available = Math.max(0, Math.round((accrued(me.userId) - paidOut(me.userId)) * 100) / 100); return { available, fee: FEE, payouts: arr("Payouts").filter((x) => x.caregiverId === me.userId).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) }; }
+      return { payouts: arr("Payouts").map((x) => ({ ...x, name: usrById(x.caregiverId)?.name || x.caregiverId })).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)), totalFees: Math.round(arr("Payouts").reduce((a, x) => a + (parseFloat(x.fee) || 0), 0) * 100) / 100 };
+    }
+    if (body.action === "cash_out" && me.role === "caregiver") { const available = Math.round((accrued(me.userId) - paidOut(me.userId)) * 100) / 100; const gross = Math.min(available, Math.max(0, parseFloat(String(body.amount)) || available)); if (gross < 1) return { error: "Nothing available to cash out yet." }; arr("Payouts").push({ payoutId: id("po"), tenantId: IDS.tenant, caregiverId: me.userId, gross: gross.toFixed(2), fee: FEE.toFixed(2), net: (gross - FEE).toFixed(2), method: "instant", status: "paid", createdAt: now() }); write(db); return { ok: true, demo: true }; }
+  }
+
+  // Item 4: AI (demo returns the heuristic text directly)
+  if (p === "/api/ai" && method === "POST") {
+    const inp = (body.input || {}) as Row; const task = String(body.task || "");
+    if (task === "care_plan") return { text: `CARE PLAN (draft)\n\nRecipient: ${inp.recipientName || ""}\nConditions: ${inp.conditions || "not specified"}\n\nGoals:\n- Maintain safety, comfort and dignity at home\n- Support activities of daily living\n- Monitor and report changes in condition\n\nServices: ${inp.services || "companionship, personal care"}\nFrequency: ${inp.frequency || "as scheduled"}`, ai: false };
+    if (task === "summarize") { const notes = String(inp.notes || ""); const flags = /\b(fall|fell|pain|refus|dizz|confus|bruise)\b/i.test(notes) ? "Risk flags: review for possible fall/pain/behavioral change." : "No obvious risk flags detected."; return { text: `Summary: ${notes.slice(0, 400) || "No notes yet."}\n\n${flags}`, ai: false }; }
+    if (task === "family_update") return { text: `Hi ${inp.familyName || "there"}, here's an update on ${inp.recipientName || "your loved one"}: recent visits went well and care is on track.`, ai: false };
+    return { text: "AI is not configured in demo mode.", ai: false };
+  }
+
+  // Item 5: scheduling + swaps
+  if (p === "/api/schedule" && method === "POST" && body.action === "auto_assign") {
+    const cg = db.Users.filter((u) => u.role === "caregiver"); const open = db.Shifts.filter((s) => s.status === "open"); let assigned = 0;
+    for (const s of open) { const b = db.Bookings.find((x) => x.bookingId === s.bookingId) || {} as Row; const cand = cg[0]; if (cand) { s.caregiverId = cand.userId; s.status = "scheduled"; if (b.bookingId) b.caregiverId = cand.userId; assigned++; } }
+    write(db); return { ok: true, assigned, remaining: open.length - assigned };
+  }
+  if (p === "/api/swaps") {
+    if (method === "GET") return { swaps: arr("ShiftSwaps").filter((sw) => sw.status === "open").map((sw) => { const s = db.Shifts.find((x) => x.shiftId === sw.shiftId) || {} as Row; const b = db.Bookings.find((x) => x.bookingId === s.bookingId) || {} as Row; return { ...sw, start: s.start || "", serviceName: svcById(b.serviceId)?.name || "", recipientName: rcpById(b.recipientId)?.name || "", fromName: usrById(sw.fromCaregiverId)?.name || "" }; }) };
+    if (body.action === "post") { const s = db.Shifts.find((x) => x.shiftId === body.shiftId); if (!s || s.caregiverId !== me.userId) return { error: "You can only post your own shift." }; arr("ShiftSwaps").push({ swapId: id("swap"), tenantId: IDS.tenant, shiftId: String(body.shiftId), fromCaregiverId: me.userId, reason: String(body.reason || ""), status: "open", createdAt: now() }); write(db); return { ok: true }; }
+    if (body.action === "claim") { const sw = arr("ShiftSwaps").find((x) => x.swapId === body.swapId); if (!sw || sw.status !== "open") return { error: "That swap is no longer available." }; const s = db.Shifts.find((x) => x.shiftId === sw.shiftId); if (s) { s.caregiverId = me.userId; s.status = "scheduled"; } sw.status = "claimed"; sw.toCaregiverId = me.userId; write(db); return ok(); }
+    if (body.action === "cancel") { const sw = arr("ShiftSwaps").find((x) => x.swapId === body.swapId); if (sw) sw.status = "cancelled"; write(db); return ok(); }
+  }
+
+  // Item 6: branding / org
+  if (p === "/api/branding") {
+    if (method === "GET") return { branding: { logoUrl: db.Tenant.logoUrl || "", brandColor: db.Tenant.brandColor || "", accentColor: db.Tenant.accentColor || "", displayName: db.Tenant.brandName || db.Tenant.name || "", customDomain: db.Tenant.customDomain || "" } };
+    for (const [k, f] of [["logoUrl", "logoUrl"], ["brandColor", "brandColor"], ["accentColor", "accentColor"], ["displayName", "brandName"], ["customDomain", "customDomain"]] as [string, string][]) if (k in body) db.Tenant[f] = String((body as Row)[k]);
+    write(db); return ok();
+  }
+  if (p === "/api/org" && method === "GET") return { org: { orgId: "org_demo", name: db.Tenant.name || "Care Royal" }, locations: [{ tenantId: IDS.tenant, name: db.Tenant.name || "Care Royal", plan: db.Tenant.plan || "demo", status: "active", city: "Los Angeles" }] };
+  if (p === "/api/org" && method === "POST") return { ok: true, demo: true };
+
+  // Item 7: background checks
+  if (p === "/api/background" && method === "POST") {
+    const pr = db.CaregiverProfiles.find((c) => c.userId === body.userId);
+    if (body.action === "invite" && pr) pr.bgCheckStatus = "pending";
+    if (body.action === "clear" && pr) pr.bgCheckStatus = "clear";
+    write(db); return { ok: true, status: pr?.bgCheckStatus || "pending" };
+  }
+
+  // Item 8: care journal
+  if (p === "/api/journal") {
+    if (method === "GET") { const hid = qs.get("householdId") || ""; let list = arr("Journal"); if (me.role === "family") { const ids = myHouseholds().map((h) => h.householdId); list = list.filter((j) => ids.includes(j.householdId)); } if (hid) list = list.filter((j) => j.householdId === hid); return { entries: list.map((j) => ({ ...j, authorName: usrById(j.authorId)?.name || j.authorName || "Care team" })).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) }; }
+    if (body.action === "post") { if (!body.householdId) return { error: "Missing household." }; const e = { entryId: id("jrnl"), tenantId: IDS.tenant, householdId: String(body.householdId), authorId: me.userId, authorName: me.name, authorRole: me.role, text: String(body.text || ""), photoUrl: String(body.photoUrl || ""), shiftId: String(body.shiftId || ""), createdAt: now() }; arr("Journal").push(e); write(db); return { ok: true, entry: e }; }
+  }
+
+  // Item 9: benchmarking
+  if (p === "/api/benchmarks" && method === "GET") {
+    const assignable = db.Shifts.filter((s) => s.status !== "cancelled").length; const filled = db.Shifts.filter((s) => s.status !== "open" && s.status !== "cancelled").length;
+    const rates = db.CaregiverProfiles.map((c) => parseFloat(c.rate || "0")).filter((r) => r > 0); const avgWage = rates.length ? Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 100) / 100 : 0;
+    const collected = db.Invoices.filter((i) => i.status === "paid").reduce((a, i) => a + (parseFloat(i.amount) || 0), 0);
+    const mine = { fillRate: assignable ? Math.round((filled / assignable) * 100) : 0, avgWage, caregivers: db.Users.filter((u) => u.role === "caregiver").length, collected: Math.round(collected) };
+    return { mine, peers: { fillRate: 82, avgWage: 21.5, caregivers: 14 }, cohort: "agencies your size" };
+  }
+
+  // Item 10: quickbooks + audit pack
+  if (p === "/api/quickbooks" && method === "POST") {
+    if (body.action === "status") return { connected: !!db.Tenant.qboRealmId };
+    if (body.action === "connect") { db.Tenant.qboRealmId = "demo_realm"; write(db); return { ok: true, demo: true }; }
+    if (body.action === "sync") return { ok: true, synced: db.Invoices.length, demo: true };
+  }
+  if (p === "/api/audit-pack" && method === "GET") {
+    const evv = (await demoHandle("GET", "/api/evv")).rows || [];
+    const documents = (db.Documents || []).filter((d) => d.status === "signed");
+    return { agency: db.Tenant.name || "Care Royal", generatedAt: now(), evv, documents, events: db.Events.slice(0, 60), claims: arr("Claims") };
   }
 
   return { error: `demo: unhandled ${method} ${p}` };

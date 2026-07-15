@@ -152,5 +152,62 @@ service cloud.firestore {
       allow create: if signedIn() && sameTenantW() && request.resource.data.fromUid == request.auth.uid;
       allow update, delete: if false;
     }
+
+    // ---- ROADMAP FEATURES ----
+
+    // Item 1: EVV billing — payers, prior authorizations, claims (agency only).
+    match /payers/{id} {
+      allow read: if isAgency() && sameTenantR();
+      allow create: if isAgency() && sameTenantW();
+      allow update, delete: if isAgency() && sameTenantR();
+    }
+    match /authorizations/{id} {
+      allow read: if isAgency() && sameTenantR();
+      allow create: if isAgency() && sameTenantW();
+      allow update, delete: if isAgency() && sameTenantR();
+    }
+    match /claims/{id} {
+      allow read: if isAgency() && sameTenantR();
+      allow create, update: if isAgency() && sameTenantW();
+      allow delete: if false;
+    }
+
+    // Item 2: instant-pay payouts. Caregiver creates own; agency sees all; server completes.
+    match /payouts/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW() && request.resource.data.caregiverId == request.auth.uid;
+      allow update: if isAgency() && sameTenantR();
+      allow delete: if false;
+    }
+
+    // Item 5: shift-swap marketplace. Any tenant member reads; caregivers post/claim their own.
+    match /shiftSwaps/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW();
+      allow update: if signedIn() && sameTenantR();
+      allow delete: if false;
+    }
+
+    // Item 6: parent organizations (franchise / white-label).
+    match /orgs/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Item 8: family Care Journal. Tenant-scoped; caregivers/agency post, family reads.
+    match /journal/{id} {
+      allow read: if sameTenantR();
+      allow create: if signedIn() && sameTenantW();
+      allow update, delete: if isAgency() && sameTenantR();
+    }
+
+    // Item 9: anonymized cross-tenant benchmarks. Any signed-in agency reads; only
+    // the scheduled Cloud Function (Admin SDK, bypasses rules) writes. No PII.
+    match /benchmarks/{id} {
+      allow read: if isAgency();
+      allow write: if false;
+    }
   }
 }

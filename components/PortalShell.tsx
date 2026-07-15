@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { verifySession, clearSession, homeForRole, type Role, type SessionUser } from "../app/lib/session";
+import { verifySession, clearSession, homeForRole, apiGet, type Role, type SessionUser } from "../app/lib/session";
 import { hasDemoSession, setDemoRole, getDemoRole } from "../app/lib/demo";
 import Icon, { type IconName } from "./Icon";
+
+interface Branding { displayName?: string; logoUrl?: string; brandColor?: string; accentColor?: string }
 
 export interface NavItem {
   key: string;
@@ -60,6 +62,7 @@ export default function PortalShell({
   const [user, setUser] = useState<SessionUser | null>(null);
   const [ready, setReady] = useState(false);
   const [drawer, setDrawer] = useState(false);
+  const [brand2, setBrand2] = useState<Branding>({});
 
   useEffect(() => {
     verifySession().then((u) => {
@@ -67,6 +70,15 @@ export default function PortalShell({
       if (!allow.includes(u.role)) { router.replace(homeForRole(u.role)); return; }
       setUser(u);
       setReady(true);
+      // White-label (item 6): apply the tenant's own name / logo / colors.
+      apiGet("/api/branding").then((d) => {
+        const b: Branding = d.branding || {};
+        setBrand2(b);
+        if (typeof document !== "undefined") {
+          if (b.brandColor) document.documentElement.style.setProperty("--cr-brand", b.brandColor);
+          if (b.accentColor) document.documentElement.style.setProperty("--cr-accent", b.accentColor);
+        }
+      }).catch(() => {});
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -110,10 +122,13 @@ export default function PortalShell({
     </nav>
   );
 
+  const brandName = brand2.displayName || "Care Royal";
   const brand = (
     <div className="flex items-center gap-2 px-6 py-5">
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand font-serif text-lg font-semibold text-white">C</span>
-      <span className="font-serif text-xl font-semibold text-brand">Care Royal</span>
+      {brand2.logoUrl
+        ? <img src={brand2.logoUrl} alt={brandName} className="h-8 w-8 rounded-lg object-cover" />
+        : <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand font-serif text-lg font-semibold text-white" style={brand2.brandColor ? { background: brand2.brandColor } : undefined}>{brandName.slice(0, 1).toUpperCase()}</span>}
+      <span className="font-serif text-xl font-semibold text-brand" style={brand2.brandColor ? { color: brand2.brandColor } : undefined}>{brandName}</span>
     </div>
   );
 
@@ -164,7 +179,7 @@ export default function PortalShell({
           {/* Topbar (bell always; menu + brand on mobile) */}
           <div className="flex items-center gap-3 border-b border-rule bg-white px-4 py-3 md:px-8">
             <button onClick={() => setDrawer(true)} className="text-ink-mid md:hidden"><Icon name="menu" /></button>
-            <span className="font-serif text-lg font-semibold text-brand md:hidden">Care Royal</span>
+            <span className="font-serif text-lg font-semibold text-brand md:hidden" style={brand2.brandColor ? { color: brand2.brandColor } : undefined}>{brandName}</span>
             <div className="ml-auto flex items-center gap-3">
               <NotificationBell items={notifications || []} />
               <span className="grid h-8 w-8 place-items-center rounded-full bg-brand text-xs font-semibold text-white md:hidden">{initials}</span>

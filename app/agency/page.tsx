@@ -8,6 +8,7 @@ import Icon from "../../components/Icon";
 import { BarChart, Donut } from "../../components/Charts";
 import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
+import { AiPanel, BillingPanel, GrowthPanel, BenchmarkPanel, PayoutsPanel, BackgroundCheck } from "../../components/AdvancedPanels";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
@@ -21,7 +22,11 @@ const nav: NavItem[] = [
   { key: "documents", label: "Documents", icon: "documents" },
   { key: "leads", label: "Leads", icon: "leads" },
   { key: "recruiting", label: "Recruiting", icon: "staff" },
+  { key: "ai", label: "AI assistant", icon: "spark" },
+  { key: "billing", label: "Billing & EVV", icon: "money" },
+  { key: "growth", label: "Grow & brand", icon: "building" },
   { key: "reports", label: "Reports", icon: "spark" },
+  { key: "benchmarks", label: "Benchmarks", icon: "leads" },
   { key: "activity", label: "Activity", icon: "clock" },
 ];
 
@@ -36,12 +41,16 @@ const SECTION_INTRO: Record<string, string> = {
   documents: "Send care plans, agreements and consents for in-app signature with a full audit trail.",
   leads: "Your inquiry pipeline. Import a CSV and move each lead from new to client.",
   recruiting: "Caregiver applications from your public hiring page. Accept to add them to your roster.",
+  ai: "Care Royal AI — draft care plans, summarize visit notes with risk flags, and write family updates.",
+  billing: "Electronic Visit Verification, prior authorizations, insurance claims, audit packs and QuickBooks.",
+  growth: "White-label your portals and run multiple locations under one organization.",
   reports: "How your agency is trending — bookings, revenue, utilization, margin and lead conversion.",
+  benchmarks: "See how your fill rate and wages compare to agencies your size — anonymized across the network.",
   activity: "A running audit log of what's happened across your agency.",
 };
 
 interface Service { serviceId: string; category: string; name: string; profileType: string; pricingModel: string; rate: string; credential: string; active: string }
-interface Caregiver { userId: string; name: string; email: string; phone: string; credentials: string; status: string; availability?: string; credentialExpiry?: string; rate?: string }
+interface Caregiver { userId: string; name: string; email: string; phone: string; credentials: string; status: string; availability?: string; credentialExpiry?: string; rate?: string; bgCheckStatus?: string }
 interface Recipient { recipientId: string; name: string; type: string; conditions: string }
 interface Client { householdId: string; name: string; city: string; recipients: Recipient[]; primaryCaregiverId?: string }
 interface Booking { bookingId: string; status: string; start: string; end?: string; serviceName: string; recipientName: string; householdName: string; credential: string; notes: string; caregiverId: string }
@@ -112,7 +121,11 @@ export default function AgencyPortal() {
       {active === "documents" && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
       {active === "leads" && <Leads />}
       {active === "recruiting" && <Recruiting joinCode={tenant?.joinCode} onChange={load} />}
+      {active === "ai" && <AiPanel />}
+      {active === "billing" && <BillingPanel />}
+      {active === "growth" && <GrowthPanel />}
       {active === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} caregivers={caregivers} leadCounts={leadCounts} />}
+      {active === "benchmarks" && <BenchmarkPanel />}
       {active === "activity" && <Activity />}
     </PortalShell>
   );
@@ -314,9 +327,12 @@ function Schedule({ bookings, caregivers, shifts, onChange }: { bookings: Bookin
         </div>
       )}
 
-      <div className="inline-flex rounded-lg border border-rule bg-white p-1">
-        <button onClick={() => setView("calendar")} className={view === "calendar" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Calendar</button>
-        <button onClick={() => setView("list")} className={view === "list" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>List</button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-lg border border-rule bg-white p-1">
+          <button onClick={() => setView("calendar")} className={view === "calendar" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Calendar</button>
+          <button onClick={() => setView("list")} className={view === "list" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>List</button>
+        </div>
+        {shifts.some((s) => s.status === "open") && <AutoAssign onChange={onChange} />}
       </div>
 
       {view === "calendar" ? (
@@ -460,6 +476,18 @@ function Row({ k, v }: { k: string; v: string }) {
   return <div className="flex justify-between gap-4"><dt className="shrink-0 text-ink-light">{k}</dt><dd className="text-right font-medium text-ink">{v}</dd></div>;
 }
 
+// Batch auto-scheduler (item 5): fills every open shift using continuity of care,
+// overtime avoidance, geography/availability and credential match.
+function AutoAssign({ onChange }: { onChange: () => void }) {
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try { const d = await apiPost("/api/schedule", { action: "auto_assign" }); onChange(); alert(`Auto-assigned ${d.assigned} shift${d.assigned === 1 ? "" : "s"}${d.remaining ? `, ${d.remaining} still need attention` : ""}.`); }
+    finally { setBusy(false); }
+  }
+  return <button onClick={run} disabled={busy} className="btn-soft btn-sm">{busy ? "Optimizing…" : "Auto-assign open shifts"}</button>;
+}
+
 // ---------------------------------------------------------------- reports
 function Reports({ bookings, shifts, invoices, caregivers, leadCounts }: {
   bookings: Booking[]; shifts: Shift[]; caregivers: Caregiver[];
@@ -596,6 +624,7 @@ function StaffRow({ c, onChange }: { c: Caregiver; onChange: () => void }) {
         </div>
         <div className="flex items-center gap-2">
           {cs && <span className={cs.tone}>{cs.label}</span>}
+          <BackgroundCheck userId={c.userId} status={c.bgCheckStatus} onChange={onChange} />
           <button onClick={() => setEdit((v) => !v)} className="btn-ghost btn-sm">{edit ? "Close" : "Edit"}</button>
         </div>
       </div>
@@ -865,6 +894,8 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
           </div>
         )}
       </div>
+
+      <PayoutsPanel />
     </div>
   );
 }

@@ -5,12 +5,14 @@ import DocumentsPanel from "../../components/DocumentsPanel";
 import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
 import Icon from "../../components/Icon";
+import { CareJournal } from "../../components/AdvancedPanels";
 import { apiGet, apiPost } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "home", label: "Home", icon: "dashboard" },
   { key: "household", label: "My people", icon: "recipients" },
   { key: "bookings", label: "Bookings", icon: "book" },
+  { key: "journal", label: "Care Journal", icon: "documents" },
   { key: "calendar", label: "Calendar", icon: "calendar" },
   { key: "messages", label: "Messages", icon: "messages" },
   { key: "payments", label: "Payments", icon: "money" },
@@ -20,6 +22,7 @@ const INTRO: Record<string, string> = {
   home: "Care for the people, pets and home you love — booked and managed in one place.",
   household: "The people, pets and homes you arrange care for.",
   bookings: "Request care for any profile. Your agency reviews and approves each booking.",
+  journal: "Photos and visit updates from your caregivers — a shared timeline for your family.",
   calendar: "Every booking on one calendar.",
   messages: "Message your agency and caregiver about a visit.",
   payments: "Your invoices from the agency.",
@@ -79,6 +82,7 @@ export default function FamilyPortal() {
       {active === "bookings" && (
         <BookingsView recipients={recipients} services={services} bookings={bookings} onChange={() => { load(); flash("Booking requested. Your agency will review it."); }} />
       )}
+      {active === "journal" && <CareJournal canPost={false} />}
       {active === "calendar" && <CalendarView events={bookings.map((b) => ({ date: b.start, label: b.serviceName, sub: b.recipientName, tone: b.status === "completed" ? "ok" : b.status === "declined" ? "danger" : b.status === "requested" ? "gold" : "brand" }))} />}
       {active === "messages" && <MessagesPanel />}
       {active === "payments" && <Payments />}

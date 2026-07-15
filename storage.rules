@@ -1,0 +1,33 @@
+rules_version = '2';
+// Care Royal file storage. Care Journal photos live under journal/{tenantId}/...
+// Deploy with: firebase deploy --only storage --project care-royale2-4dgwu0
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    // The caller's tenant, from their users/{uid} profile.
+    function myTenant() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenantId;
+    }
+
+    // Care Journal photos: any signed-in member of the tenant may read; a signed-in
+    // member of the same tenant may upload (images only, <= 8MB). Path carries the
+    // tenantId so cross-tenant access is impossible.
+    match /journal/{tenantId}/{allPaths=**} {
+      allow read: if signedIn() && myTenant() == tenantId;
+      allow write: if signedIn() && myTenant() == tenantId
+                   && request.resource.size < 8 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Agency branding assets (logos) — same tenant-scoped model.
+    match /branding/{tenantId}/{allPaths=**} {
+      allow read: if true;              // logos are shown on public microsites
+      allow write: if signedIn() && myTenant() == tenantId
+                   && request.resource.size < 4 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

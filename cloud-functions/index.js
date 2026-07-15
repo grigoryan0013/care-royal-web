@@ -4,10 +4,12 @@
 // See PAYMENTS.md for the one-time setup + deploy steps.
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const Stripe = require("stripe");
 const { google } = require("googleapis");
+const Anthropic = require("@anthropic-ai/sdk");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -205,4 +207,199 @@ exports.emailTest = onCall({ secrets: [GMAIL_SERVICE_ACCOUNT] }, async (request)
   const to = (u.exists && u.data().email) || MAIL_SUBJECT;
   await transporter()({ from: fromFor("Care Royal"), to, subject: "Care Royal email is working", html: baseEmail("Care Royal", `<p style="color:#57636C">This is a test — your Gmail Workspace delegation is set up correctly.</p>`) });
   return { ok: true, to };
+});
+
+// =====================================================================
+// ROADMAP FEATURES — server-side work. Each stays inert until its secret /
+// account is configured; the client falls back to heuristics/graceful states.
+// =====================================================================
+const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY"); // Item 4 (AI)
+const CHECKR_API_KEY = defineSecret("CHECKR_API_KEY");       // Item 7 (background checks)
+const INTUIT_CLIENT_ID = defineSecret("INTUIT_CLIENT_ID");   // Item 10 (QuickBooks)
+const INTUIT_CLIENT_SECRET = defineSecret("INTUIT_CLIENT_SECRET");
+
+// ---- ITEM 4: AI layer (Anthropic, latest Claude) --------------------------
+// Care-plan generation, visit-note summarization + risk flags, family updates,
+// and voice/chat intake. One callable, task-routed. Uses the latest Claude model
+// with adaptive thinking (see the claude-api skill / CLAUDE.md).
+const AI_PROMPTS = {
+  care_plan: "You are a home-care clinical assistant. Write a clear, structured care plan (goals, services, frequency, safety notes) for the recipient described. Be concrete and non-alarmist. Output plain text, no markdown headers beyond simple labels.",
+  summarize: "You are a home-care supervisor. Summarize the caregiver visit notes in 2-3 sentences, then on a new line list any risk flags (falls, pain trends, medication issues, behavioral changes). If none, say 'No risk flags.' Plain text only.",
+  family_update: "You are writing a warm, brief, honest update to a family member about their loved one's recent home-care visits. 2-4 sentences. Plain text.",
+  intake: "You are an intake assistant for a home-care agency. From the caller transcript, extract who care is for, the services needed, urgency, and a one-line summary. Respond as compact JSON with keys careFor, services, urgency, summary.",
+};
+exports.aiGenerate = onCall({ secrets: [ANTHROPIC_API_KEY], timeoutSeconds: 120 }, async (request) => {
+  const uid = request.auth && request.auth.uid;
+  if (!uid) throw new HttpsError("unauthenticated", "Sign in first.");
+  const key = ANTHROPIC_API_KEY.value();
+  if (!key) throw new HttpsError("failed-precondition", "AI is not configured.");
+  const task = (request.data && request.data.task) || "";
+  const system = AI_PROMPTS[task];
+  if (!system) throw new HttpsError("invalid-argument", "Unknown AI task.");
+  const input = (request.data && request.data.input) || {};
+  const client = new Anthropic({ apiKey: key });
+  const msg = await client.messages.create({
+    model: "claude-opus-4-8",
+    max_tokens: 2048,
+    thinking: { type: "adaptive" },
+    system,
+    messages: [{ role: "user", content: JSON.stringify(input) }],
+  });
+  const text = (msg.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n").trim();
+  return { text, ai: true, model: msg.model };
+});
+
+// ---- ITEM 2: instant caregiver pay (Stripe instant payout / transfer) ------
+// Best-effort earned-wage access. Pays the caregiver's connected Stripe account
+// (caregiverProfiles.stripeAccountId) via an instant payout. Stays pending until
+// the caregiver has connected a payout destination.
+exports.instantPayout = onCall({ secrets: [STRIPE_SECRET_KEY] }, async (request) => {
+  const { tenantId } = await ctx(request);
+  const payoutId = request.data && request.data.payoutId;
+  const amount = Math.round((parseFloat(request.data && request.data.amount) || 0) * 100);
+  const po = await db.doc(`payouts/${payoutId}`).get();
+  if (!po.exists || po.data().tenantId !== tenantId) throw new HttpsError("not-found", "Payout not found.");
+  const cgId = po.data().caregiverId;
+  const profSnap = await db.collection("caregiverProfiles").where("userId", "==", cgId).limit(1).get();
+  const acct = profSnap.empty ? "" : profSnap.docs[0].data().stripeAccountId;
+  if (!acct) return { ok: false, pending: true, note: "Caregiver has not connected a payout destination yet." };
+  try {
+    const transfer = await stripe().transfers.create({ amount, currency: "usd", destination: acct, metadata: { payoutId, tenantId } });
+    await stripe().payouts.create({ amount, currency: "usd", method: "instant" }, { stripeAccount: acct }).catch(() => {});
+    await db.doc(`payouts/${payoutId}`).set({ status: "paid", stripeId: transfer.id }, { merge: true });
+    return { ok: true };
+  } catch (e) {
+    await db.doc(`payouts/${payoutId}`).set({ status: "pending" }, { merge: true });
+    return { ok: false, pending: true, note: e.message };
+  }
+});
+
+// ---- ITEM 3: Telephony EVV / IVR clock-in (Twilio webhook) -----------------
+// Caregiver calls the Twilio number, enters their PIN then the 4-digit shift
+// code; we clock in (or out if already clocked in). Returns TwiML (XML).
+function twiml(inner) { return `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`; }
+function gather(prompt, numDigits) { return `<Gather input="dtmf" numDigits="${numDigits}" action="/ivrWebhook" method="POST"><Say>${prompt}</Say></Gather><Say>We didn't get that. Goodbye.</Say>`; }
+exports.ivrWebhook = onRequest(async (req, res) => {
+  res.set("Content-Type", "text/xml");
+  const digits = (req.body && req.body.Digits) || "";
+  const pin = (req.body && req.body.pin) || "";
+  try {
+    // Step 1: no digits yet → ask for PIN.
+    if (!digits && !pin) { res.send(twiml(gather("Welcome to Care Royal. Enter your caregiver P I N, then press pound.", ""))); return; }
+    // Step 2: got the PIN → look up the caregiver, ask for the shift code.
+    if (digits && !pin) {
+      const prof = await db.collection("caregiverProfiles").where("pin", "==", digits).limit(1).get();
+      if (prof.empty) { res.send(twiml(`<Say>That P I N was not recognized. Goodbye.</Say>`)); return; }
+      const uid = prof.docs[0].data().userId;
+      res.send(twiml(`<Gather input="dtmf" numDigits="4" action="/ivrWebhook?pin=${encodeURIComponent(uid)}" method="POST"><Say>Enter your four digit shift code.</Say></Gather><Say>Goodbye.</Say>`));
+      return;
+    }
+    // Step 3: pin (carrying the caregiver uid) + shift code → clock in/out.
+    const uid = pin; const code = digits;
+    const shifts = await db.collection("shifts").where("caregiverId", "==", uid).where("shiftCode", "==", code).limit(1).get();
+    if (shifts.empty) { res.send(twiml(`<Say>No matching shift found. Goodbye.</Say>`)); return; }
+    const ref = shifts.docs[0].ref; const s = shifts.docs[0].data(); const nowIso = new Date().toISOString();
+    if (!s.clockIn) { await ref.set({ clockIn: nowIso, status: "in_progress", gpsIn: "phone" }, { merge: true }); res.send(twiml(`<Say>You are clocked in. Have a great visit. Goodbye.</Say>`)); return; }
+    await ref.set({ clockOut: nowIso, status: "completed", gpsOut: "phone" }, { merge: true });
+    if (s.bookingId) await db.doc(`bookings/${s.bookingId}`).set({ status: "completed" }, { merge: true }).catch(() => {});
+    res.send(twiml(`<Say>You are clocked out. Thank you. Goodbye.</Say>`));
+  } catch (e) {
+    res.send(twiml(`<Say>Sorry, an error occurred. Goodbye.</Say>`));
+  }
+});
+
+// ---- ITEM 7: Checkr background checks --------------------------------------
+async function checkrGET(path, key) {
+  const r = await fetch(`https://api.checkr.com/v1${path}`, { headers: { Authorization: "Basic " + Buffer.from(key + ":").toString("base64") } });
+  return r.json();
+}
+async function checkrPOST(path, key, body) {
+  const r = await fetch(`https://api.checkr.com/v1${path}`, { method: "POST", headers: { Authorization: "Basic " + Buffer.from(key + ":").toString("base64"), "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return r.json();
+}
+exports.checkrInvite = onCall({ secrets: [CHECKR_API_KEY] }, async (request) => {
+  const { tenantId, role } = await ctx(request);
+  if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
+  const key = CHECKR_API_KEY.value();
+  if (!key) return { status: "pending", note: "Checkr not configured." };
+  const targetUid = request.data && request.data.userId;
+  const u = await db.doc(`users/${targetUid}`).get();
+  if (!u.exists) throw new HttpsError("not-found", "Caregiver not found.");
+  const [first, ...rest] = String(u.data().name || "Caregiver").split(" ");
+  const candidate = await checkrPOST("/candidates", key, { first_name: first, last_name: rest.join(" ") || first, email: u.data().email });
+  const invitation = await checkrPOST("/invitations", key, { candidate_id: candidate.id, package: "driver_pro" });
+  return { id: candidate.id, status: invitation.status || "pending", invitationUrl: invitation.invitation_url || "" };
+});
+exports.checkrStatus = onCall({ secrets: [CHECKR_API_KEY] }, async (request) => {
+  const { role } = await ctx(request);
+  if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
+  const key = CHECKR_API_KEY.value(); if (!key) return { status: "pending" };
+  const targetUid = request.data && request.data.userId;
+  const prof = await db.collection("caregiverProfiles").where("userId", "==", targetUid).limit(1).get();
+  const candidateId = prof.empty ? "" : prof.docs[0].data().bgCheckId;
+  if (!candidateId) return { status: "pending" };
+  const reports = await checkrGET(`/candidates/${candidateId}/reports`, key);
+  const report = (reports.data || [])[0];
+  return { status: report ? report.status : "pending", result: report ? report.result : "" };
+});
+
+// ---- ITEM 10: QuickBooks Online sync + audit packs -------------------------
+const INTUIT_REDIRECT = `${APP_URL}/agency/`;
+exports.quickbooksStatus = onCall(async (request) => {
+  const { tenantId } = await ctx(request);
+  const t = await db.doc(`tenants/${tenantId}`).get();
+  return { connected: !!(t.exists && t.data().qboRealmId) };
+});
+exports.quickbooksConnect = onCall({ secrets: [INTUIT_CLIENT_ID] }, async (request) => {
+  const { tenantId, role } = await ctx(request);
+  if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
+  const clientId = INTUIT_CLIENT_ID.value();
+  if (!clientId) return { error: "QuickBooks is not configured yet." };
+  const state = tenantId;
+  const url = `https://appcenter.intuit.com/connect/oauth2?client_id=${encodeURIComponent(clientId)}&response_type=code&scope=com.intuit.quickbooks.accounting&redirect_uri=${encodeURIComponent(INTUIT_REDIRECT)}&state=${encodeURIComponent(state)}`;
+  return { url };
+});
+exports.quickbooksSync = onCall({ secrets: [INTUIT_CLIENT_ID, INTUIT_CLIENT_SECRET] }, async (request) => {
+  const { tenantId } = await ctx(request);
+  const t = await db.doc(`tenants/${tenantId}`).get();
+  const realmId = t.exists ? t.data().qboRealmId : "";
+  const token = t.exists ? t.data().qboAccessToken : "";
+  if (!realmId || !token) return { ok: false, note: "Connect QuickBooks first." };
+  const invSnap = await db.collection("invoices").where("tenantId", "==", tenantId).where("status", "==", "unpaid").get();
+  // Push each unpaid invoice as a QuickBooks Invoice (best-effort; skips on error).
+  let synced = 0;
+  for (const doc of invSnap.docs) {
+    const inv = doc.data();
+    const r = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/invoice`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ Line: [{ Amount: parseFloat(inv.amount) || 0, DetailType: "SalesItemLineDetail", SalesItemLineDetail: { ItemRef: { value: "1" } } }], CustomerRef: { value: "1" } }),
+    }).catch(() => null);
+    if (r && r.ok) { synced++; await doc.ref.set({ qboSynced: true }, { merge: true }); }
+  }
+  return { ok: true, synced };
+});
+
+// ---- ITEM 9: anonymized benchmarking (scheduled, cross-tenant, no PII) ------
+exports.benchmarkAggregate = onSchedule("every 24 hours", async () => {
+  const [tenants, shifts, profiles, invoices] = await Promise.all([
+    db.collection("tenants").get(), db.collection("shifts").get(),
+    db.collection("caregiverProfiles").get(), db.collection("invoices").get(),
+  ]);
+  const byTenant = {};
+  const bucket = (id) => (byTenant[id] ||= { assignable: 0, filled: 0, rates: [], collected: 0, caregivers: 0 });
+  shifts.forEach((d) => { const s = d.data(); const b = bucket(s.tenantId); if (s.status !== "cancelled") b.assignable++; if (s.status !== "open" && s.status !== "cancelled") b.filled++; });
+  profiles.forEach((d) => { const p = d.data(); const b = bucket(p.tenantId); b.caregivers++; const r = parseFloat(p.rate || "0"); if (r > 0) b.rates.push(r); });
+  invoices.forEach((d) => { const i = d.data(); if (i.status === "paid") bucket(i.tenantId).collected += parseFloat(i.amount) || 0; });
+  const fills = [], wages = [], cgs = [];
+  Object.values(byTenant).forEach((b) => {
+    if (b.assignable) fills.push((b.filled / b.assignable) * 100);
+    if (b.rates.length) wages.push(b.rates.reduce((a, c) => a + c, 0) / b.rates.length);
+    cgs.push(b.caregivers);
+  });
+  const avg = (a) => (a.length ? Math.round((a.reduce((x, y) => x + y, 0) / a.length) * 100) / 100 : 0);
+  await db.doc("benchmarks/global").set({
+    fillRate: Math.round(avg(fills)), avgWage: avg(wages), caregivers: Math.round(avg(cgs)),
+    sample: tenants.size, updatedAt: new Date().toISOString(),
+  }, { merge: true });
 });
