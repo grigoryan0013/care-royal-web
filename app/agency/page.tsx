@@ -9,7 +9,7 @@ import { BarChart, Donut } from "../../components/Charts";
 import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
 import { AiPanel, BillingPanel, GrowthPanel, BenchmarkPanel, PayoutsPanel, BackgroundCheck } from "../../components/AdvancedPanels";
-import { apiGet, apiPost, signOutUser } from "../lib/session";
+import { apiGet, apiPost, signOutUser, verifySession, MANAGER_PERMISSION_KEYS, type SessionUser } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -71,6 +71,19 @@ export default function AgencyPortal() {
   const [quoteReqs, setQuoteReqs] = useState(0);
   const [msg, setMsg] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [session, setSession] = useState<SessionUser | null>(null);
+
+  useEffect(() => { verifySession().then((u) => setSession(u)); }, []);
+  const role = session?.role;
+  const isOwner = role === "agency_admin" || role === "agency_coord";
+  const isManager = role === "manager";
+  const perms = session?.permissions || {};
+  // Which console sections a manager can see, keyed to their permission toggles.
+  const NAV_PERM: Record<string, string> = { schedule: "schedule", clients: "clients", staff: "staff", messages: "messages", documents: "documents", leads: "leads", money: "money" };
+  const can = (key: string) => isOwner || key === "dashboard" || (!!NAV_PERM[key] && !!perms[NAV_PERM[key]]);
+  const shownNav: NavItem[] = isManager
+    ? nav.filter((n) => can(n.key))
+    : [...nav, { key: "team", label: "Team", icon: "staff" as const }];
 
   const load = useCallback(async () => {
     const [s, a, b, sh, inv, t, ld, qr] = await Promise.all([
@@ -137,31 +150,134 @@ export default function AgencyPortal() {
     );
   }
 
+  // Manager waitlist gate: a manager stays "pending" until the agency Owner
+  // approves them (or "suspended" if the Owner paused their access).
+  if (session && isManager && session.status && session.status !== "active") {
+    const suspended = session.status === "suspended";
+    return (
+      <div className="app-bg flex min-h-screen items-center justify-center px-4">
+        <div className="card max-w-lg text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-brand/10 text-brand"><Icon name="clock" /></div>
+          <h1 className="font-serif text-2xl text-ink">{suspended ? "Your access is paused" : "Waiting for approval"}</h1>
+          <p className="mt-3 text-sm text-ink-light">
+            {suspended
+              ? "Your manager access has been paused. Please contact your agency owner."
+              : "Your manager account was created. Your agency owner needs to approve it and set your permissions before you can get in — you'll be able to sign in as soon as they do."}
+          </p>
+          <button className="btn-ghost mt-6" onClick={() => { void signOutUser(); window.location.href = "/login/"; }}>Sign out</button>
+        </div>
+      </div>
+    );
+  }
+
+  // A manager landing on a section they can't see falls back to the dashboard.
+  const view = isManager && !can(active) ? "dashboard" : active;
+
   return (
-    <PortalShell title="Agency console" allow={["agency_admin", "agency_coord"]} nav={nav} active={active} onNav={setActive} notifications={notifications}>
+    <PortalShell title="Agency console" allow={["agency_admin", "agency_coord", "manager"]} nav={shownNav} active={view} onNav={setActive} notifications={notifications}>
       <div className="mb-6">
-        <h1 className="font-serif text-3xl text-ink">{nav.find((n) => n.key === active)?.label}</h1>
-        <p className="mt-1 text-sm text-ink-light">{SECTION_INTRO[active]}</p>
+        <h1 className="font-serif text-3xl text-ink">{shownNav.find((n) => n.key === view)?.label}</h1>
+        <p className="mt-1 text-sm text-ink-light">{view === "team" ? "Approve managers and staff who join with your agency code, and set what each manager can do." : SECTION_INTRO[view]}</p>
       </div>
       {msg && <p className="mb-4 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</p>}
 
-      {active === "dashboard" && <Dashboard tenant={tenant} services={services} bookings={bookings} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} leadCount={leadCount} onGo={setActive} />}
-      {active === "schedule" && <Schedule bookings={bookings} caregivers={caregivers} shifts={shifts} onChange={() => { load(); flash("Schedule updated."); }} />}
-      {active === "clients" && <Clients clients={clients} caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Client updated."); }} />}
-      {active === "staff" && <Staff caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Caregiver updated."); }} />}
-      {active === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
-      {active === "messages" && <MessagesPanel />}
-      {active === "money" && <Money onGo={setActive} plan={tenant?.plan} />}
-      {active === "documents" && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
-      {active === "leads" && <Leads />}
-      {active === "recruiting" && <Recruiting joinCode={tenant?.joinCode} onChange={load} />}
-      {active === "ai" && <AiPanel />}
-      {active === "billing" && <BillingPanel />}
-      {active === "growth" && <GrowthPanel />}
-      {active === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} caregivers={caregivers} leadCounts={leadCounts} />}
-      {active === "benchmarks" && <BenchmarkPanel />}
-      {active === "activity" && <Activity />}
+      {view === "dashboard" && <Dashboard tenant={tenant} services={services} bookings={bookings} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} leadCount={leadCount} onGo={setActive} />}
+      {view === "schedule" && can("schedule") && <Schedule bookings={bookings} caregivers={caregivers} shifts={shifts} onChange={() => { load(); flash("Schedule updated."); }} />}
+      {view === "clients" && can("clients") && <Clients clients={clients} caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Client updated."); }} />}
+      {view === "staff" && can("staff") && <Staff caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Caregiver updated."); }} />}
+      {view === "messages" && can("messages") && <MessagesPanel />}
+      {view === "documents" && can("documents") && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
+      {view === "leads" && can("leads") && <Leads />}
+      {view === "money" && can("money") && <Money onGo={setActive} plan={tenant?.plan} />}
+      {/* Owner-only sections */}
+      {isOwner && view === "team" && <Team flash={flash} />}
+      {isOwner && view === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
+      {isOwner && view === "recruiting" && <Recruiting joinCode={tenant?.joinCode} onChange={load} />}
+      {isOwner && view === "ai" && <AiPanel />}
+      {isOwner && view === "billing" && <BillingPanel />}
+      {isOwner && view === "growth" && <GrowthPanel />}
+      {isOwner && view === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} caregivers={caregivers} leadCounts={leadCounts} />}
+      {isOwner && view === "benchmarks" && <BenchmarkPanel />}
+      {isOwner && view === "activity" && <Activity />}
     </PortalShell>
+  );
+}
+
+// ---------------------------------------------------------------- team (owner)
+interface TeamMember { userId: string; name: string; email: string; phone: string; role: string; status: string; permissions: Record<string, boolean> }
+function Team({ flash }: { flash: (t: string) => void }) {
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [busy, setBusy] = useState("");
+  const load = useCallback(async () => { const r = await apiGet("/api/team").catch(() => ({ team: [] })); setTeam(r.team || []); }, []);
+  useEffect(() => { load(); }, [load]);
+  async function act(u: TeamMember, action: string, extra?: Record<string, unknown>) {
+    setBusy(u.userId + action);
+    try { await apiPost("/api/team", { action, userId: u.userId, ...extra }); flash("Team updated."); await load(); }
+    catch (e) { flash((e as Error).message || "Something went wrong."); }
+    setBusy("");
+  }
+  const managers = team.filter((t) => t.role === "manager");
+  const staff = team.filter((t) => t.role === "caregiver");
+  const pending = team.filter((t) => t.status === "pending");
+  const sBadge = (s: string) => (s === "pending" ? "badge-warn" : s === "suspended" ? "badge-gold" : "badge-ok");
+  const actions = (u: TeamMember) => {
+    const b = busy.startsWith(u.userId);
+    return (
+      <div className="flex shrink-0 gap-2">
+        {u.status === "pending" && <button className="btn-primary" disabled={b} onClick={() => act(u, "approve")}>Approve</button>}
+        {u.status === "active" && <button className="btn-ghost" disabled={b} onClick={() => act(u, "suspend")}>Pause</button>}
+        {u.status === "suspended" && <button className="btn-primary" disabled={b} onClick={() => act(u, "reactivate")}>Reactivate</button>}
+      </div>
+    );
+  };
+  const permToggles = (u: TeamMember) => {
+    const p = u.permissions || {};
+    return (
+      <div className="mt-2 flex flex-wrap gap-2">
+        {MANAGER_PERMISSION_KEYS.map((k) => (
+          <button key={k} disabled={busy.startsWith(u.userId)} onClick={() => act(u, "permissions", { permissions: { ...p, [k]: !p[k] } })} className={p[k] ? "chip-on" : "chip-off"}>{k}</button>
+        ))}
+      </div>
+    );
+  };
+  return (
+    <div className="space-y-6">
+      {pending.length > 0 && (
+        <div className="card">
+          <h3 className="font-serif text-lg text-ink">Waiting for approval ({pending.length})</h3>
+          {pending.map((u) => (
+            <div key={u.userId} className="flex flex-col gap-2 border-b border-rule py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between">
+              <div><span className="font-medium text-ink">{u.name || u.email}</span> <span className="badge badge-muted">{u.role === "manager" ? "manager" : "staff"}</span><div className="text-sm text-ink-light">{u.email}{u.phone ? ` · ${u.phone}` : ""}</div></div>
+              {actions(u)}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="card">
+        <h3 className="font-serif text-lg text-ink">Managers</h3>
+        <p className="mt-1 text-sm text-ink-light">Managers join with your agency code and pick &ldquo;Manager&rdquo;. Approve them, then toggle what each can access.</p>
+        {managers.length === 0 && <p className="py-3 text-sm text-ink-light">No managers yet.</p>}
+        {managers.map((u) => (
+          <div key={u.userId} className="border-b border-rule py-3 last:border-0">
+            <div className="flex items-center justify-between gap-3">
+              <div><span className="font-medium text-ink">{u.name || u.email}</span> <span className={`badge ${sBadge(u.status)}`}>{u.status}</span><div className="text-sm text-ink-light">{u.email}</div></div>
+              {actions(u)}
+            </div>
+            {u.status !== "pending" && permToggles(u)}
+          </div>
+        ))}
+      </div>
+      <div className="card">
+        <h3 className="font-serif text-lg text-ink">Staff (caregivers)</h3>
+        {staff.length === 0 && <p className="py-3 text-sm text-ink-light">No staff yet.</p>}
+        {staff.map((u) => (
+          <div key={u.userId} className="flex items-center justify-between gap-3 border-b border-rule py-3 last:border-0">
+            <div><span className="font-medium text-ink">{u.name || u.email}</span> <span className={`badge ${sBadge(u.status)}`}>{u.status}</span><div className="text-sm text-ink-light">{u.email}</div></div>
+            {actions(u)}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

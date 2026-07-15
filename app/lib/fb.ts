@@ -14,7 +14,7 @@ type Row = Record<string, any>;
 // Care Royal platform super-admins (recognized by login email — no tenant).
 const SUPERADMINS = ["info@thecareroyal.com"];
 
-let _profile: { uid: string; tenantId: string; role: string; name: string; email: string } | null = null;
+let _profile: { uid: string; tenantId: string; role: string; name: string; email: string; status?: string; permissions?: Record<string, boolean> } | null = null;
 export function clearProfileCache() { _profile = null; }
 
 async function me() {
@@ -32,6 +32,7 @@ async function me() {
   _profile = {
     uid: u.uid, tenantId: d.tenantId || "", role: d.role || "family",
     name: d.name || u.email || "", email: u.email || "",
+    status: d.status || "active", permissions: d.permissions || {},
   };
   return _profile;
 }
@@ -236,7 +237,28 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
   }
 
   if (p === "/api/auth" && method === "GET") {
-    return { user: { userId: m.uid, tenantId: T, email: m.email, role: m.role, name: m.name } };
+    return { user: { userId: m.uid, tenantId: T, email: m.email, role: m.role, name: m.name, status: m.status || "active", permissions: m.permissions || {} } };
+  }
+
+  // ---- Team: Owner manages managers & staff (approve, suspend, permissions) --
+  // Owner-only (agency_admin). Managers can't manage the team.
+  if (p === "/api/team") {
+    if (m.role !== "agency_admin") return { error: "Only the agency owner can manage the team." };
+    if (method === "GET") {
+      const users = await readCol("users", T);
+      const team = users
+        .filter((u) => u.role === "manager" || u.role === "caregiver")
+        .map((u) => ({ userId: u.userId || u._id, name: u.name || "", email: u.email || "", phone: u.phone || "", role: u.role, status: u.status || "active", permissions: u.permissions || {} }))
+        .sort((a, b) => (a.status === "pending" && b.status !== "pending" ? -1 : 1));
+      return { team };
+    }
+    const uid = String(body.userId || "");
+    if (!uid) return { error: "Missing user." };
+    if (body.action === "approve") { await update("users", uid, { status: "active" }); void logEvent("Approved a team member"); return ok(); }
+    if (body.action === "suspend") { await update("users", uid, { status: "suspended" }); return ok(); }
+    if (body.action === "reactivate") { await update("users", uid, { status: "active" }); return ok(); }
+    if (body.action === "permissions") { await update("users", uid, { permissions: (body.permissions as Row) || {} }); void logEvent("Updated a manager's permissions"); return ok(); }
+    return { error: "Unknown action." };
   }
 
   // ---- tenant (agency profile + shareable join code)

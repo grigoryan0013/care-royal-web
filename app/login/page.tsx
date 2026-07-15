@@ -2,12 +2,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signIn, signUp, homeForRole, verifySession, type SignupRole } from "../lib/session";
+import { signIn, signUp, homeForRole, verifySession, apiGet, type SignupRole } from "../lib/session";
 import Icon from "../../components/Icon";
 
 type Tab = "signin" | "signup";
 const ROLES: { key: SignupRole; label: string; blurb: string }[] = [
   { key: "agency", label: "Care agency", blurb: "Run scheduling, staff, billing & payroll" },
+  { key: "manager", label: "Manager", blurb: "Run day-to-day for an agency (owner approves)" },
   { key: "family", label: "Family", blurb: "Book & manage care for a loved one" },
   { key: "caregiver", label: "Caregiver", blurb: "See your shifts, clock in, get paid" },
 ];
@@ -30,9 +31,19 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [agencyBrand, setAgencyBrand] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signup") setTab("signup");
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mode") === "signup") setTab("signup");
+    // Per-agency link (?a=CODE): prefill the join code and show the agency's name.
+    const code = (params.get("a") || "").trim().toUpperCase();
+    if (code) {
+      setJoinCode(code);
+      setTab("signup");
+      apiGet(`/api/agency-public?code=${code}`).then((d) => { if (d?.agency?.name) setAgencyBrand(d.agency.name); }).catch(() => {});
+    }
     verifySession().then((u) => { if (u) router.replace(homeForRole(u.role)); });
   }, [router]);
 
@@ -88,6 +99,11 @@ export default function AuthPage() {
           </div>
 
           <div className="card">
+            {agencyBrand && (
+              <div className="mb-4 rounded-lg border border-brand/30 bg-brand-light px-3 py-2 text-sm text-brand">
+                Joining <span className="font-semibold">{agencyBrand}</span> on Care Royal
+              </div>
+            )}
             <h1 className="font-serif text-2xl text-ink">{tab === "signin" ? "Welcome back" : "Get started"}</h1>
             <p className="mb-6 mt-1 text-sm text-ink-light">
               {tab === "signin" ? "Sign in to your Care Royal workspace." : "Create your account in under a minute."}

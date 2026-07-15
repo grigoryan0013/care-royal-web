@@ -10,16 +10,26 @@ import { fbHandle, clearProfileCache } from "./fb";
 import { DEFAULT_SERVICES } from "./catalog";
 import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle } from "./demo";
 
-export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "caregiver" | "family";
+export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
 // Care Royal platform super-admins (recognized by login email — no tenant).
 export const SUPERADMIN_EMAILS = ["info@thecareroyal.com"];
-export type SignupRole = "agency" | "family" | "caregiver";
+export type SignupRole = "agency" | "family" | "caregiver" | "manager";
+
+// What a manager is allowed to do inside their agency. The Owner toggles these.
+export type Permissions = Record<string, boolean>;
+export const MANAGER_PERMISSION_KEYS = ["clients", "schedule", "messages", "documents", "leads", "staff", "money"] as const;
+export const DEFAULT_MANAGER_PERMISSIONS: Permissions = {
+  clients: true, schedule: true, messages: true, documents: true, leads: false, staff: false, money: false,
+};
+
 export interface SessionUser {
   userId: string;
   tenantId: string;
   email: string;
   role: Role;
   name: string;
+  status?: string;              // "active" | "pending" | "suspended" (managers/staff)
+  permissions?: Permissions;    // managers only
 }
 
 // Resolve once when Firebase Auth has restored any persisted session.
@@ -113,7 +123,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     return { userId: uid, tenantId, email, role: "agency_admin", name };
   }
 
-  // family / caregiver: resolve their agency by join code
+  // family / caregiver / manager: resolve their agency by join code
   const code = (input.joinCode || "").trim().toUpperCase();
   const jc = await getDoc(doc(D, "joinCodes", code));
   if (!jc.exists()) {
@@ -122,14 +132,17 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     throw new Error("That agency code wasn't found. Ask your care agency for their Care Royal code.");
   }
   const tenantId = (jc.data() as { tenantId: string }).tenantId;
-  const role: Role = input.role === "family" ? "family" : "caregiver";
-  await setDoc(doc(D, "users", uid), { userId: uid, tenantId, role, name, email, phone: input.phone || "", createdAt: now() });
+  const role: Role = input.role === "family" ? "family" : input.role === "manager" ? "manager" : "caregiver";
+  // Families self-serve immediately; managers and staff need Owner approval first.
+  const status = role === "family" ? "active" : "pending";
+  const extra: Record<string, unknown> = role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {};
+  await setDoc(doc(D, "users", uid), { userId: uid, tenantId, role, name, email, phone: input.phone || "", status, ...extra, createdAt: now() });
   if (role === "family") {
     await setDoc(doc(collection(D, "households")), { tenantId, primaryUserId: uid, name: name ? `${name}'s household` : "My household", address: "", city: "", zip: "", createdAt: now() });
-  } else {
+  } else if (role === "caregiver") {
     await setDoc(doc(collection(D, "caregiverProfiles")), { tenantId, userId: uid, credentials: "", rate: "", bio: "", createdAt: now() });
   }
-  return { userId: uid, tenantId, email, role, name };
+  return { userId: uid, tenantId, email, role, name, status, ...(role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {}) };
 }
 
 export function signOutUser() {

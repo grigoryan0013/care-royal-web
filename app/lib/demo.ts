@@ -193,6 +193,22 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   // ---- auth
   if (p === "/api/auth" && method === "GET") return { user: me };
 
+  // ---- team (owner: managers & staff)
+  if (p === "/api/team") {
+    if (method === "GET") {
+      const team = db.Users.filter((u) => u.role === "manager" || u.role === "caregiver")
+        .map((u) => ({ userId: u.userId, name: u.name, email: u.email, phone: u.phone || "", role: u.role, status: u.status || "active", permissions: {} }));
+      return { team };
+    }
+    const u = db.Users.find((x) => x.userId === body.userId);
+    if (u) {
+      if (body.action === "approve" || body.action === "reactivate") u.status = "active";
+      if (body.action === "suspend") u.status = "suspended";
+      write(db);
+    }
+    return ok();
+  }
+
   // ---- tenant
   if (p === "/api/tenant" && method === "GET") return { tenant: { tenantId: IDS.tenant, name: db.Tenant.name || "Care Royal", plan: db.Tenant.plan || "demo", joinCode: "DEMO24", status: "active" } };
 

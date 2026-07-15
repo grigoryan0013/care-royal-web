@@ -6,7 +6,7 @@ import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
 import Icon from "../../components/Icon";
 import { CashOut, SwapBoard } from "../../components/AdvancedPanels";
-import { apiGet, apiPost } from "../lib/session";
+import { apiGet, apiPost, verifySession, signOutUser, type SessionUser } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "schedule", label: "My schedule", icon: "schedule" },
@@ -51,15 +51,35 @@ export default function CaregiverPortal() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [open, setOpen] = useState<Shift[]>([]);
   const [msg, setMsg] = useState("");
+  const [session, setSession] = useState<SessionUser | null>(null);
 
   const load = useCallback(async () => {
     const d = await apiGet("/api/shifts").catch(() => ({ shifts: [], open: [] }));
     setShifts(d.shifts || []); setOpen(d.open || []);
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); verifySession().then((u) => setSession(u)); }, [load]);
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(""), 3000); }
 
   const upcoming = shifts.filter((s) => s.status === "scheduled" || s.status === "in_progress");
+
+  // Staff waitlist gate: a caregiver stays "pending" until the agency approves.
+  if (session && session.role === "caregiver" && session.status && session.status !== "active") {
+    const suspended = session.status === "suspended";
+    return (
+      <div className="app-bg flex min-h-screen items-center justify-center px-4">
+        <div className="card max-w-lg text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-brand/10 text-brand"><Icon name="clock" /></div>
+          <h1 className="font-serif text-2xl text-ink">{suspended ? "Your access is paused" : "Waiting for approval"}</h1>
+          <p className="mt-3 text-sm text-ink-light">
+            {suspended
+              ? "Your access has been paused. Please contact your agency."
+              : "Thanks for joining. Your agency needs to approve your account before you can see your shifts — you'll be able to sign in as soon as they do."}
+          </p>
+          <button className="btn-ghost mt-6" onClick={() => { void signOutUser(); window.location.href = "/login/"; }}>Sign out</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <PortalShell title="Caregiver" allow={["caregiver"]} nav={nav} active={active} onNav={setActive}>
