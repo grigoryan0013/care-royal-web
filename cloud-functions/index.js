@@ -126,7 +126,9 @@ function buildMime({ from, to, subject, html }) {
   ].join("\r\n");
 }
 function transporter() {
-  const creds = JSON.parse(GMAIL_SERVICE_ACCOUNT.value());
+  const raw = GMAIL_SERVICE_ACCOUNT.value();
+  if (!raw || raw === "unset") return async () => {}; // email not configured yet — no-op
+  const creds = JSON.parse(raw);
   const auth = new google.auth.JWT({ email: creds.client_email, key: creds.private_key, scopes: ["https://www.googleapis.com/auth/gmail.send"], subject: MAIL_SUBJECT });
   const gmail = google.gmail({ version: "v1", auth });
   return async ({ from, to, subject, html }) => {
@@ -290,7 +292,7 @@ exports.checkrInvite = onCall({ secrets: [CHECKR_API_KEY] }, async (request) => 
   const { tenantId, role } = await ctx(request);
   if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
   const key = CHECKR_API_KEY.value();
-  if (!key) return { status: "pending", note: "Checkr not configured." };
+  if (!key || key === "unset") return { status: "pending", note: "Checkr not configured." };
   const targetUid = request.data && request.data.userId;
   const u = await db.doc(`users/${targetUid}`).get();
   if (!u.exists) throw new HttpsError("not-found", "Caregiver not found.");
@@ -302,7 +304,7 @@ exports.checkrInvite = onCall({ secrets: [CHECKR_API_KEY] }, async (request) => 
 exports.checkrStatus = onCall({ secrets: [CHECKR_API_KEY] }, async (request) => {
   const { role } = await ctx(request);
   if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
-  const key = CHECKR_API_KEY.value(); if (!key) return { status: "pending" };
+  const key = CHECKR_API_KEY.value(); if (!key || key === "unset") return { status: "pending" };
   const targetUid = request.data && request.data.userId;
   const prof = await db.collection("caregiverProfiles").where("userId", "==", targetUid).limit(1).get();
   const candidateId = prof.empty ? "" : prof.docs[0].data().bgCheckId;
@@ -323,7 +325,7 @@ exports.quickbooksConnect = onCall({ secrets: [INTUIT_CLIENT_ID] }, async (reque
   const { tenantId, role } = await ctx(request);
   if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
   const clientId = INTUIT_CLIENT_ID.value();
-  if (!clientId) return { error: "QuickBooks is not configured yet." };
+  if (!clientId || clientId === "unset") return { error: "QuickBooks is not configured yet." };
   const state = tenantId;
   const url = `https://appcenter.intuit.com/connect/oauth2?client_id=${encodeURIComponent(clientId)}&response_type=code&scope=com.intuit.quickbooks.accounting&redirect_uri=${encodeURIComponent(INTUIT_REDIRECT)}&state=${encodeURIComponent(state)}`;
   return { url };
