@@ -2,8 +2,16 @@ name = "care-royal"
 pages_build_output_dir = "out"
 compatibility_date = "2024-01-01"
 
-# Care Royal is a fully client-side app: Next.js static export (this repo) +
-# Firebase (Auth + Firestore) as the ONLY backend. There are no server
-# functions and no secrets to set here — the Firebase web config in
-# app/lib/firebase.ts is public by design and access is enforced by
-# firestore.rules. Cloudflare Pages only serves the static `out/` bundle.
+# Care Royal is a Next.js static export (served from `out/`) + Firebase (Auth +
+# client-side Firestore) as the data backend. The Firebase web config in
+# app/lib/firebase.ts is public by design; access is enforced by firestore.rules.
+#
+# ONE server function lives in `functions/api/email.js` — transactional email via
+# the Gmail API + a domain-wide-delegated service account (the same technique and
+# the same credential as Tegula). Cloudflare Pages auto-detects the `functions/`
+# directory at the repo root and serves it alongside the static bundle.
+#
+# Required secret (Cloudflare dashboard -> this Pages project -> Settings ->
+# Variables and Secrets -> add as an ENCRYPTED secret, NOT plaintext):
+#   GMAIL_SERVICE_ACCOUNT = the one-line Gmail service-account JSON (reuse Tegula's).
+# Until it's set, /api/email no-ops and forms still work.

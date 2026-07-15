@@ -88,7 +88,9 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     const agencyName = (input.agencyName || name || "My Agency").trim();
     const batch = writeBatch(D);
     batch.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "active", joinCode: code, ownerUid: uid, createdAt: now() });
-    batch.set(doc(D, "joinCodes", code), { tenantId, agencyName, createdAt: now() });
+    // notifyEmail lets the public quote/apply forms route the agency's
+    // new-request notification (this stack has no server-side Firestore).
+    batch.set(doc(D, "joinCodes", code), { tenantId, agencyName, notifyEmail: email, createdAt: now() });
     batch.set(doc(D, "users", uid), { userId: uid, tenantId, role: "agency_admin", name, email, phone: input.phone || "", createdAt: now() });
     for (const s of DEFAULT_SERVICES) {
       batch.set(doc(collection(D, "services")), {

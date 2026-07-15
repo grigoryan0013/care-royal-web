@@ -24,9 +24,13 @@ Business model (do not violate — see also owner memory):
 - **Firebase is the ONLY backend.** Auth (email/password) + **client-side Firestore**.
   There is no REST server. `app/lib/fb.ts` implements a GET/POST "endpoint contract"
   directly against Firestore; security is enforced by `firestore.rules`.
-- Server-only work (Stripe, Gmail email, future AI/Twilio) lives in **`cloud-functions/`**
-  (Firebase Cloud Functions, `firebase.json` → `functions.source: cloud-functions`).
-  Uses `defineSecret`; needs the Blaze plan to deploy.
+- **Transactional email** runs in **`functions/api/email.js`** — a Cloudflare Pages
+  Function (Gmail API + domain-wide-delegated service account, same technique as
+  Tegula; JWT signed with Web Crypto). Secret `GMAIL_SERVICE_ACCOUNT` set in the
+  Cloudflare Pages dashboard. See `EMAIL.md`. We do NOT use Firebase Functions for
+  email — the Firebase project is on Spark (no Blaze billing).
+- Other server-only work (Stripe, future AI/Twilio) still lives in **`cloud-functions/`**
+  (Firebase Cloud Functions); those need the Blaze plan and are not deployed.
 
 ## Key files
 - `app/lib/fb.ts` — Firestore data layer (real mode). The source of truth for the API.

@@ -41,6 +41,21 @@ async function update(name: string, id: string, patch: Row) {
   await updateDoc(doc(db(), name, id), patch);
 }
 const now = () => new Date().toISOString();
+
+// Fire-and-forget transactional email via the Cloudflare Pages Function
+// (functions/api/email.js). Same Gmail-API technique as Tegula. Never blocks or
+// throws into the caller — a form submission must succeed even if email is down
+// or GMAIL_SERVICE_ACCOUNT isn't set yet (the function no-ops in that case).
+function sendEmail(payload: Row) {
+  try {
+    fetch("/api/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* ignore */ }
+}
 const gen4 = () => String(Math.floor(1000 + Math.random() * 9000)); // shift PIN code for IVR clock-in
 const ok = () => ({ ok: true });
 const byId = (rows: Row[], field: string, val: string) => rows.find((r) => r[field] === val);
@@ -66,16 +81,24 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     const code = String(body.code || "").trim().toUpperCase();
     const jc = await getDoc(doc(db(), "joinCodes", code));
     if (!jc.exists()) return { error: "We couldn't find that agency code. Please check it with the agency." };
-    const tenantId = (jc.data() as { tenantId: string; agencyName?: string }).tenantId;
+    const jd = jc.data() as { tenantId: string; agencyName?: string; notifyEmail?: string };
+    const tenantId = jd.tenantId;
+    const services = Array.isArray(body.services) ? (body.services as string[]).join(", ") : (body.services || "");
     await create("quoteRequests", "quoteId", {
       tenantId, name: body.name || "", email: body.email || "", phone: body.phone || "",
       city: body.city || "", zip: body.zip || "", careFor: body.careFor || "", recipientName: body.recipientName || "",
-      services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : (body.services || ""),
+      services,
       frequency: body.frequency || "", startDate: body.startDate || "", schedule: body.schedule || "",
       budget: body.budget || "", details: body.details || "", bestTime: body.bestTime || "",
       status: "new", source: "quote", createdAt: now(),
     });
-    return { ok: true, agency: (jc.data() as { agencyName?: string }).agencyName || "" };
+    sendEmail({
+      type: "quote", agencyName: jd.agencyName || "", agencyEmail: jd.notifyEmail || "",
+      q: { name: body.name || "", email: body.email || "", phone: body.phone || "", services,
+           frequency: body.frequency || "", details: body.details || "",
+           recipientName: body.recipientName || "", bestTime: body.bestTime || "" },
+    });
+    return { ok: true, agency: jd.agencyName || "" };
   }
 
   // Public caregiver application (recruiting) — no account, routed by agency code.
@@ -83,7 +106,8 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     const code = String(body.code || "").trim().toUpperCase();
     const jc = await getDoc(doc(db(), "joinCodes", code));
     if (!jc.exists()) return { error: "We couldn't find that agency code." };
-    const tenantId = (jc.data() as { tenantId: string }).tenantId;
+    const jd = jc.data() as { tenantId: string; agencyName?: string; notifyEmail?: string };
+    const tenantId = jd.tenantId;
     await create("caregiverApplications", "appId", {
       tenantId, name: body.name || "", email: body.email || "", phone: body.phone || "", city: body.city || "", zip: body.zip || "",
       credentials: body.credentials || "", experience: body.experience || "",
@@ -91,7 +115,12 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : (body.services || ""),
       details: body.details || "", status: "new", createdAt: now(),
     });
-    return { ok: true, agency: (jc.data() as { agencyName?: string }).agencyName || "" };
+    sendEmail({
+      type: "application", agencyName: jd.agencyName || "", agencyEmail: jd.notifyEmail || "",
+      a: { name: body.name || "", email: body.email || "", phone: body.phone || "",
+           credentials: body.credentials || "", experience: body.experience || "" },
+    });
+    return { ok: true, agency: jd.agencyName || "" };
   }
   // Public review submission.
   if (p === "/api/review" && method === "POST") {
@@ -251,6 +280,18 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
         await create("shifts", "shiftId", { tenantId: T, bookingId: body.bookingId, caregiverId: body.caregiverId || "", start, end: b?.end || "", status: body.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "", shiftCode: gen4() });
       }
       void logEvent(`Approved booking · ${occ > 1 ? occ + " weekly shifts" : "1 shift"}`);
+      // Booking confirmed → notify family + assigned caregiver (Tegula-pattern email).
+      try {
+        const users = await readCol("users", T);
+        const hh = byId(households, "householdId", b?.householdId);
+        const familyEmail = byId(users, "userId", hh?.primaryUserId)?.email || "";
+        const caregiverEmail = body.caregiverId ? (byId(users, "userId", body.caregiverId)?.email || "") : "";
+        const tSnap = await getDoc(doc(db(), "tenants", T));
+        const agencyName = tSnap.exists() ? ((tSnap.data() as Row).name || "") : "";
+        const svcName = byId(services, "serviceId", b?.serviceId)?.name || "your care visit";
+        const when = b?.start ? new Date(b.start).toLocaleString() : "the scheduled time";
+        if (familyEmail || caregiverEmail) sendEmail({ type: "booking", agencyName, familyEmail, caregiverEmail, svcName, when });
+      } catch { /* email is best-effort */ }
       return ok();
     }
     if (body.action === "decline") { await update("bookings", body.bookingId, { status: "declined" }); return ok(); }
