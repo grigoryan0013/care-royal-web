@@ -115,23 +115,54 @@ async function sendMail(token, { from, to, subject, html }) {
   if (!res.ok) throw new Error("send: " + res.status + " " + (await res.text()).slice(0, 200));
 }
 
-/* ---------- branded templates (ported verbatim from cloud-functions/index.js) ---------- */
-function baseEmail(agency, bodyHtml) {
-  return `<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#f1f4f8;border-radius:14px;overflow:hidden">
-    <div style="background:linear-gradient(135deg,#0D0459,#4B39EF);padding:22px 28px">
-      <div style="color:#fff;font-size:20px;font-weight:700;font-family:Georgia,serif">${esc(agency || "Care Royal")}</div>
-      <div style="color:rgba(255,255,255,.65);font-size:11px;letter-spacing:.12em;text-transform:uppercase">Powered by Care Royal</div>
-    </div>
-    <div style="padding:28px">${bodyHtml}</div>
-    <div style="padding:16px 28px;color:#8b95a1;font-size:11px;border-top:1px solid #E0E3E7">This message was sent by ${esc(agency || "Care Royal")} via Care Royal. Please do not reply to this address.</div>
-  </div>`;
+/* ---------- branded templates (premium, table-based, email-client-safe) ----------
+   Palette: navy #0d1b3e, gold #c6a15b, ink #1f2937, muted #6b7280, page #eef1f6.
+   Tables + inline styles only (Gmail/Outlook/Apple Mail safe). No emojis/dingbats. */
+const NAVY = "#0d1b3e", GOLD = "#c6a15b", INK = "#1f2937", MUTED = "#6b7280";
+
+function baseEmail(agency, bodyHtml, preheader) {
+  const name = esc(agency || "Care Royal");
+  const isAgency = name && name !== "Care Royal";
+  const pre = preheader
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0">${esc(preheader)}</div>`
+    : "";
+  return `<!--[if mso]><style>body,table,td{font-family:Georgia,'Times New Roman',serif !important}</style><![endif]-->
+${pre}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f6;margin:0;padding:24px 12px">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e4e8f0;box-shadow:0 1px 3px rgba(13,27,62,.06)">
+      <!-- header -->
+      <tr><td style="background:${NAVY};padding:30px 34px 26px">
+        <div style="font-family:Georgia,'Times New Roman',serif;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:.08em">CARE ROYAL</div>
+        <div style="height:2px;width:46px;background:${GOLD};margin:12px 0 10px"></div>
+        <div style="color:#aab6d4;font-size:11px;letter-spacing:.18em;text-transform:uppercase">${isAgency ? esc(name) + " &middot; " : ""}Trusted care, staffing &amp; concierge</div>
+      </td></tr>
+      <!-- body -->
+      <tr><td style="padding:34px 34px 8px;font-family:-apple-system,Segoe UI,Arial,sans-serif;color:${INK};font-size:16px;line-height:1.6">
+        ${bodyHtml}
+      </td></tr>
+      <!-- footer -->
+      <tr><td style="padding:22px 34px 26px">
+        <div style="border-top:1px solid #e4e8f0;padding-top:18px;font-family:-apple-system,Segoe UI,Arial,sans-serif;color:${MUTED};font-size:12px;line-height:1.6">
+          Sent by ${isAgency ? esc(name) + " via " : ""}<a href="https://thecareroyal.com" style="color:${NAVY};font-weight:600;text-decoration:none">The Care Royal</a>.<br>
+          <a href="https://thecareroyal.com" style="color:${GOLD};text-decoration:none">thecareroyal.com</a>
+          &nbsp;&middot;&nbsp; This is an automated message; please don't reply directly.
+        </div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>`;
 }
+
 const btn = (href, label) =>
-  `<a href="${href}" style="display:inline-block;background:#4B39EF;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600;margin-top:8px">${label}</a>`;
+  `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0 10px"><tr><td style="border-radius:10px;background:${NAVY}">
+    <a href="${href}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px">${label}</a>
+  </td></tr></table>`;
 const fromFor = (agency) =>
   `"${String(agency || "Care Royal").replace(/"/g, "")} via Care Royal" <info@thecareroyal.com>`;
-const H = (t) => `<h2 style="font-family:Georgia,serif;color:#14181B">${t}</h2>`;
-const P = (t) => `<p style="color:#57636C">${t}</p>`;
+const H = (t) =>
+  `<h1 style="margin:0 0 14px;font-family:Georgia,'Times New Roman',serif;color:${NAVY};font-size:23px;font-weight:700;line-height:1.25">${t}</h1>`;
+const P = (t) => `<p style="margin:0 0 14px;color:${INK};font-size:16px;line-height:1.6">${t}</p>`;
 
 /* Returns the list of { from, to, subject, html } messages for a request. */
 function composeMessages(body) {
@@ -238,10 +269,15 @@ function composeMessages(body) {
       msgs.push({
         from: fromFor("Care Royal"),
         to: body.to,
-        subject: "Care Royal email is working",
+        subject: "Your Care Royal email is live",
         html: baseEmail(
           "Care Royal",
-          P("This is a test — your Gmail Workspace delegation is set up correctly.")
+          H("Email is up and running") +
+            P("This is a test from thecareroyal.com. If you're reading it, transactional email is fully configured — sending securely as <b>info@thecareroyal.com</b> through the Gmail API.") +
+            P("Welcome emails, quote acknowledgements, application confirmations, and booking notices will now go out automatically to your families and caregivers.") +
+            btn("https://thecareroyal.com/app/", "Open Care Royal") +
+            P(`<span style="color:${MUTED};font-size:13px">You can safely ignore this message.</span>`),
+          "Care Royal email is configured and sending correctly."
         ),
       });
     return msgs;
