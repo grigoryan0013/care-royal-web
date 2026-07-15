@@ -54,7 +54,8 @@ type Row = Record<string, string>;
 interface Db {
   Users: Row[]; Households: Row[]; Recipients: Row[]; Services: Row[];
   CaregiverProfiles: Row[]; Bookings: Row[]; Shifts: Row[]; Invoices: Row[];
-  Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Messages: Row[]; QuoteRequests: Row[]; Tenant: Row;
+  Documents: Row[]; Leads: Row[]; Waitlist: Row[]; Messages: Row[]; QuoteRequests: Row[];
+  CaregiverApplications: Row[]; Reviews: Row[]; Events: Row[]; Tenant: Row;
 }
 
 function seedIfEmpty() {
@@ -121,6 +122,18 @@ export function resetDemo() {
       { quoteId: "qr1", tenantId: IDS.tenant, name: "Denise Carter", email: "denise.c@example.com", phone: "818-555-0170", city: "Burbank", zip: "91505", careFor: "person", recipientName: "my mother (82)", services: "Personal care, Companionship, Medication reminders", frequency: "3x per week", startDate: "", schedule: "Mornings preferred", budget: "", details: "Mom has limited mobility after a fall. Looking to start within two weeks.", bestTime: "Afternoons", status: "new", source: "quote", createdAt: agoHours(5) },
     ],
     Waitlist: [],
+    CaregiverApplications: [
+      { appId: "app1", tenantId: IDS.tenant, name: "Maria Lopez", email: "maria.l@example.com", phone: "213-555-0181", city: "Glendale", zip: "91205", credentials: "CNA, CPR", experience: "6 years senior care", availability: "Mon-Fri days", services: "Personal & senior care, Companion & non-medical", details: "Bilingual English/Spanish. Comfortable with dementia care.", status: "new", createdAt: agoHours(8) },
+    ],
+    Reviews: [
+      { reviewId: "rv1", tenantId: IDS.tenant, rating: "5", name: "The Miller Family", text: "Ana is wonderful with my mother — punctual, kind, and communicative.", createdAt: agoHours(72) },
+      { reviewId: "rv2", tenantId: IDS.tenant, rating: "5", name: "R. Chen", text: "Booking and scheduling was effortless. Highly recommend.", createdAt: agoHours(200) },
+      { reviewId: "rv3", tenantId: IDS.tenant, rating: "4", name: "G. Park", text: "Great caregivers. Would love more weekend availability.", createdAt: agoHours(400) },
+    ],
+    Events: [
+      { eventId: "ev1", tenantId: IDS.tenant, text: "Approved booking · 1 shift", actor: "Owner", createdAt: agoHours(26) },
+      { eventId: "ev2", tenantId: IDS.tenant, text: "Care Plan signed by Jordan Miller", actor: "Jordan Miller", createdAt: agoHours(20) },
+    ],
     Messages: [
       { messageId: "msg1", tenantId: IDS.tenant, householdId: "hh1", fromUid: IDS.family, fromName: "Jordan Miller", fromRole: "family", text: "Hi, could Ana arrive a little earlier on Friday?", createdAt: agoHours(20) },
       { messageId: "msg2", tenantId: IDS.tenant, householdId: "hh1", fromUid: IDS.admin, fromName: "Care team", fromRole: "agency_admin", text: "Of course — we'll confirm with Ana and update the schedule.", createdAt: agoHours(19) },
@@ -222,12 +235,30 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   // ---- agency aggregate
   if (p === "/api/agency" && method === "GET") {
     const clients = db.Households.map((h) => ({ ...h, recipients: db.Recipients.filter((r) => r.householdId === h.householdId) }));
-    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", availability: pr?.availability || "", status: "active" }; });
+    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", status: "active" }; });
     return { clients, caregivers };
   }
   if (p === "/api/agency" && method === "POST") {
     if (body.action === "assign_caregiver") { const h = hhById(String(body.householdId)); if (h) h.primaryCaregiverId = String(body.caregiverId || ""); write(db); return ok(); }
+    if (body.action === "set_caregiver") { let pr = db.CaregiverProfiles.find((c) => c.userId === body.userId); if (!pr) { pr = { userId: String(body.userId), tenantId: IDS.tenant }; db.CaregiverProfiles.push(pr); } for (const k of ["credentials", "credentialExpiry", "rate"]) if (k in body) pr[k] = String((body as Row)[k]); write(db); return ok(); }
   }
+
+  // ---- caregiver self profile
+  if (p === "/api/profile") {
+    let pr = db.CaregiverProfiles.find((c) => c.userId === me.userId);
+    if (method === "GET") return { profile: pr || { userId: me.userId, credentials: "", credentialExpiry: "", rate: "", bio: "", availability: "" } };
+    if (!pr) { pr = { userId: me.userId, tenantId: IDS.tenant }; db.CaregiverProfiles.push(pr); }
+    for (const k of ["credentials", "credentialExpiry", "rate", "bio", "availability"]) if (k in body) pr[k] = String((body as Row)[k]);
+    write(db); return ok();
+  }
+
+  // ---- recruiting (applications), audit events
+  if (p === "/api/applications" && method === "GET") return { applications: db.CaregiverApplications.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) };
+  if (p === "/api/applications" && method === "POST") { const a = db.CaregiverApplications.find((x) => x.appId === body.appId); if (a) a.status = body.action === "accept" ? "accepted" : "declined"; write(db); return ok(); }
+  if (p === "/api/events" && method === "GET") return { events: db.Events.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)).slice(0, 60) };
+  if (p === "/api/apply" && method === "POST") { db.CaregiverApplications.push({ appId: id("app"), tenantId: IDS.tenant, name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), city: String(body.city || ""), zip: String(body.zip || ""), credentials: String(body.credentials || ""), experience: String(body.experience || ""), availability: Array.isArray(body.availability) ? (body.availability as string[]).join(", ") : String(body.availability || ""), services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : String(body.services || ""), details: String(body.details || ""), status: "new", createdAt: now() }); write(db); return { ok: true, agency: db.Tenant.name || "Care Royal" }; }
+  if (p === "/api/review" && method === "POST") { db.Reviews.push({ reviewId: id("rv"), tenantId: IDS.tenant, rating: String(Math.max(1, Math.min(5, parseInt(String(body.rating)) || 5))), name: String(body.name || "Anonymous"), text: String(body.text || ""), createdAt: now() }); write(db); return { ok: true }; }
+  if (p === "/api/agency-public" && method === "GET") { const reviews = db.Reviews.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)); const avg = reviews.length ? reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0) / reviews.length : 0; return { agency: { name: db.Tenant.name || "Care Royal", code: "DEMO24" }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length }; }
 
   // ---- caregiver availability
   if (p === "/api/availability") {

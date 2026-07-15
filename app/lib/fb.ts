@@ -76,8 +76,70 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     return { ok: true, agency: (jc.data() as { agencyName?: string }).agencyName || "" };
   }
 
+  // Public caregiver application (recruiting) — no account, routed by agency code.
+  if (p === "/api/apply" && method === "POST") {
+    const code = String(body.code || "").trim().toUpperCase();
+    const jc = await getDoc(doc(db(), "joinCodes", code));
+    if (!jc.exists()) return { error: "We couldn't find that agency code." };
+    const tenantId = (jc.data() as { tenantId: string }).tenantId;
+    await create("caregiverApplications", "appId", {
+      tenantId, name: body.name || "", email: body.email || "", phone: body.phone || "", city: body.city || "", zip: body.zip || "",
+      credentials: body.credentials || "", experience: body.experience || "",
+      availability: Array.isArray(body.availability) ? (body.availability as string[]).join(", ") : (body.availability || ""),
+      services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : (body.services || ""),
+      details: body.details || "", status: "new", createdAt: now(),
+    });
+    return { ok: true, agency: (jc.data() as { agencyName?: string }).agencyName || "" };
+  }
+  // Public review submission.
+  if (p === "/api/review" && method === "POST") {
+    const code = String(body.code || "").trim().toUpperCase();
+    const jc = await getDoc(doc(db(), "joinCodes", code));
+    if (!jc.exists()) return { error: "Agency not found." };
+    const rating = Math.max(1, Math.min(5, parseInt(String(body.rating)) || 5));
+    await create("reviews", "reviewId", { tenantId: (jc.data() as { tenantId: string }).tenantId, rating, name: body.name || "Anonymous", text: body.text || "", createdAt: now() });
+    return { ok: true };
+  }
+  // Public agency microsite data (name + reviews).
+  if (p === "/api/agency-public" && method === "GET") {
+    const code = String(qs.get("code") || "").trim().toUpperCase();
+    const jc = await getDoc(doc(db(), "joinCodes", code));
+    if (!jc.exists()) return { agency: null };
+    const tenantId = (jc.data() as { tenantId: string }).tenantId;
+    const rsnap = await getDocs(query(collection(db(), "reviews"), where("tenantId", "==", tenantId)));
+    const reviews = rsnap.docs.map((d) => d.data() as Row).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    const avg = reviews.length ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length : 0;
+    return { agency: { name: (jc.data() as { agencyName?: string }).agencyName || "", code }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length };
+  }
+
   const m = await me();
   const T = m.tenantId;
+  const logEvent = (text: string) => create("events", "eventId", { tenantId: T, text, actor: m.name || m.email || "", createdAt: now() }).then(() => undefined).catch(() => undefined);
+
+  // ---- agency recruiting inbox (caregiver applications)
+  if (p === "/api/applications") {
+    if (method === "GET") { const a = await readCol("caregiverApplications", T); return { applications: a.sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1)) }; }
+    if (body.action === "accept") { await update("caregiverApplications", body.appId, { status: "accepted" }); void logEvent("Accepted a caregiver application"); return ok(); }
+    if (body.action === "decline") { await update("caregiverApplications", body.appId, { status: "declined" }); return ok(); }
+  }
+
+  // ---- audit log
+  if (p === "/api/events" && method === "GET") {
+    const e = await readCol("events", T);
+    return { events: e.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 60) };
+  }
+
+  // ---- caregiver self profile (credentials, expiry, rate, bio, availability)
+  if (p === "/api/profile") {
+    const profiles = await readCol("caregiverProfiles", T);
+    let pr = profiles.find((x) => x.userId === m.uid);
+    if (method === "GET") return { profile: pr || { userId: m.uid, credentials: "", credentialExpiry: "", rate: "", bio: "", availability: "" } };
+    if (!pr) pr = await create("caregiverProfiles", "profileId", { tenantId: T, userId: m.uid, credentials: "", rate: "", bio: "", availability: "", credentialExpiry: "", createdAt: now() });
+    const patch: Row = {};
+    for (const k of ["credentials", "credentialExpiry", "rate", "bio", "availability"]) if (k in body) patch[k] = String(body[k]);
+    await update("caregiverProfiles", pr._id || pr.profileId, patch);
+    return ok();
+  }
 
   // ---- agency inbox of incoming quote requests
   if (p === "/api/quote-requests") {
@@ -90,6 +152,7 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       const qr = (await readCol("quoteRequests", T)).find((x) => x._id === body.quoteId || x.quoteId === body.quoteId);
       await create("leads", "leadId", { tenantId: T, name: qr?.name || "", email: qr?.email || "", phone: qr?.phone || "", address: "", city: qr?.city || "", zip: qr?.zip || "", stage: "new", source: "quote", notes: [qr?.services, qr?.frequency, qr?.details].filter(Boolean).join(" · "), createdAt: now() });
       await update("quoteRequests", body.quoteId, { status: "converted" });
+      void logEvent(`Converted a quote request to a lead`);
       return ok();
     }
   }
@@ -185,6 +248,7 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
         const start = base ? new Date(base.getTime() + i * 7 * 864e5).toISOString() : (b?.start || "");
         await create("shifts", "shiftId", { tenantId: T, bookingId: body.bookingId, caregiverId: body.caregiverId || "", start, end: b?.end || "", status: body.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" });
       }
+      void logEvent(`Approved booking · ${occ > 1 ? occ + " weekly shifts" : "1 shift"}`);
       return ok();
     }
     if (body.action === "decline") { await update("bookings", body.bookingId, { status: "declined" }); return ok(); }
@@ -213,10 +277,19 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     const [households, recipients, users, profiles] = await Promise.all([readCol("households", T), readCol("recipients", T), readCol("users", T), readCol("caregiverProfiles", T)]);
     if (method === "GET") {
       const clients = households.map((h) => ({ ...h, recipients: recipients.filter((r) => r.householdId === h.householdId) }));
-      const caregivers = users.filter((u) => u.role === "caregiver").map((u) => { const pr = byId(profiles, "userId", u.userId || u._id); return { userId: u.userId || u._id, name: u.name, email: u.email, phone: u.phone || "", credentials: pr?.credentials || "", availability: pr?.availability || "", status: "active" }; });
+      const caregivers = users.filter((u) => u.role === "caregiver").map((u) => { const pr = byId(profiles, "userId", u.userId || u._id); return { userId: u.userId || u._id, name: u.name, email: u.email, phone: u.phone || "", credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", status: "active" }; });
       return { clients, caregivers };
     }
     if (body.action === "assign_caregiver") { await update("households", body.householdId, { primaryCaregiverId: body.caregiverId || "" }); return ok(); }
+    if (body.action === "set_caregiver") {
+      const profs = await readCol("caregiverProfiles", T);
+      const pr = profs.find((x) => x.userId === body.userId);
+      const patch: Row = {};
+      for (const k of ["credentials", "credentialExpiry", "rate"]) if (k in body) patch[k] = String(body[k]);
+      if (pr) await update("caregiverProfiles", pr._id || pr.profileId, patch);
+      else await create("caregiverProfiles", "profileId", { tenantId: T, userId: body.userId, ...patch, createdAt: now() });
+      return ok();
+    }
   }
 
   // ---- caregiver availability (stored on their profile)

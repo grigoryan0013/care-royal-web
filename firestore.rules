@@ -28,6 +28,32 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---- public caregiver applications (recruiting): same shape as quotes.
+    match /caregiverApplications/{id} {
+      allow create: if request.resource.data.tenantId is string
+                    && request.resource.data.tenantId.size() > 0;
+      allow read, update: if isAgency() && resource.data.tenantId == myTenant();
+      allow delete: if false;
+    }
+
+    // ---- reviews: publicly readable (agency microsite); anyone can leave one
+    // (must carry a tenantId + 1-5 rating). Agency moderates its own.
+    match /reviews/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.tenantId is string
+                    && request.resource.data.tenantId.size() > 0
+                    && request.resource.data.rating is number
+                    && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
+      allow update, delete: if isAgency() && resource.data.tenantId == myTenant();
+    }
+
+    // ---- audit log: agency writes events for its own tenant; append-only.
+    match /events/{id} {
+      allow read: if isAgency() && resource.data.tenantId == myTenant();
+      allow create: if signedIn() && request.resource.data.tenantId == myTenant();
+      allow update, delete: if false;
+    }
+
     // ---- public waitlist position counter (used by the marketing landing) ----
     match /counters/waitlist {
       allow read, write: if true;

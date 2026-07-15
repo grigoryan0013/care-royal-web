@@ -36,6 +36,11 @@ export default function OwnerConsole() {
   const active = orgs.filter((o) => o.status === "active").length;
   const monthly = mrr(orgs);
   const planBars = PLANS.map((p) => ({ label: p, value: orgs.filter((o) => o.status === "active" && o.plan === p).length, tone: p === "Enterprise" ? "purple" : p === "Pro" ? "brand" : "gold" }));
+  const growthBars = (() => {
+    const base = new Date(); const bars: { label: string; value: number; tone: string }[] = [];
+    for (let i = 5; i >= 0; i--) { const d = new Date(base.getFullYear(), base.getMonth() - i, 1); bars.push({ label: d.toLocaleDateString(undefined, { month: "short" }), value: orgs.filter((o) => { const c = new Date(o.createdAt); return c.getFullYear() === d.getFullYear() && c.getMonth() === d.getMonth(); }).length, tone: "ok" }); }
+    return bars;
+  })();
 
   return (
     <main className="app-bg min-h-screen">
@@ -58,6 +63,8 @@ export default function OwnerConsole() {
           <div className="card"><div className="font-serif text-3xl text-brand">${monthly.toLocaleString()}</div><div className="text-xs text-ink-light">MRR</div></div>
           <div className="card"><div className="font-serif text-3xl text-gold-dark">${(monthly * 12).toLocaleString()}</div><div className="text-xs text-ink-light">ARR (run-rate)</div></div>
         </div>
+
+        <div className="card mb-6"><h3 className="mb-4 font-serif text-lg text-ink">New agencies per month</h3><BarChart data={growthBars} /></div>
 
         <div className="mb-6 grid gap-5 lg:grid-cols-2">
           <div className="card"><h3 className="mb-4 font-serif text-lg text-ink">Active agencies by plan</h3><BarChart data={planBars} /></div>

@@ -20,7 +20,9 @@ const nav: NavItem[] = [
   { key: "money", label: "Money", icon: "money" },
   { key: "documents", label: "Documents", icon: "documents" },
   { key: "leads", label: "Leads", icon: "leads" },
+  { key: "recruiting", label: "Recruiting", icon: "staff" },
   { key: "reports", label: "Reports", icon: "spark" },
+  { key: "activity", label: "Activity", icon: "clock" },
 ];
 
 const SECTION_INTRO: Record<string, string> = {
@@ -33,11 +35,13 @@ const SECTION_INTRO: Record<string, string> = {
   money: "Connect payments, generate invoices from completed shifts, and run payroll from the same timesheets.",
   documents: "Send care plans, agreements and consents for in-app signature with a full audit trail.",
   leads: "Your inquiry pipeline. Import a CSV and move each lead from new to client.",
-  reports: "How your agency is trending — bookings, revenue, caregiver hours and lead conversion.",
+  recruiting: "Caregiver applications from your public hiring page. Accept to add them to your roster.",
+  reports: "How your agency is trending — bookings, revenue, utilization, margin and lead conversion.",
+  activity: "A running audit log of what's happened across your agency.",
 };
 
 interface Service { serviceId: string; category: string; name: string; profileType: string; pricingModel: string; rate: string; credential: string; active: string }
-interface Caregiver { userId: string; name: string; email: string; phone: string; credentials: string; status: string; availability?: string }
+interface Caregiver { userId: string; name: string; email: string; phone: string; credentials: string; status: string; availability?: string; credentialExpiry?: string; rate?: string }
 interface Recipient { recipientId: string; name: string; type: string; conditions: string }
 interface Client { householdId: string; name: string; city: string; recipients: Recipient[]; primaryCaregiverId?: string }
 interface Booking { bookingId: string; status: string; start: string; end?: string; serviceName: string; recipientName: string; householdName: string; credential: string; notes: string; caregiverId: string }
@@ -101,13 +105,15 @@ export default function AgencyPortal() {
       {active === "dashboard" && <Dashboard tenant={tenant} services={services} bookings={bookings} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} leadCount={leadCount} onGo={setActive} />}
       {active === "schedule" && <Schedule bookings={bookings} caregivers={caregivers} shifts={shifts} onChange={() => { load(); flash("Schedule updated."); }} />}
       {active === "clients" && <Clients clients={clients} caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Client updated."); }} />}
-      {active === "staff" && <Staff caregivers={caregivers} joinCode={tenant?.joinCode} />}
+      {active === "staff" && <Staff caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Caregiver updated."); }} />}
       {active === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
       {active === "messages" && <MessagesPanel />}
-      {active === "money" && <Money onGo={setActive} />}
+      {active === "money" && <Money onGo={setActive} plan={tenant?.plan} />}
       {active === "documents" && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
       {active === "leads" && <Leads />}
-      {active === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} leadCounts={leadCounts} />}
+      {active === "recruiting" && <Recruiting joinCode={tenant?.joinCode} onChange={load} />}
+      {active === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} caregivers={caregivers} leadCounts={leadCounts} />}
+      {active === "activity" && <Activity />}
     </PortalShell>
   );
 }
@@ -121,18 +127,34 @@ const statusBadge: Record<string, string> = { requested: "badge-warn", scheduled
 
 // ---------------------------------------------------------------- share code
 function ShareCode({ joinCode }: { joinCode?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState("");
   if (!joinCode) return null;
-  function copy() { navigator.clipboard?.writeText(joinCode!).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }); }
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const links = [
+    { label: "Public page", url: `${origin}/care/?a=${joinCode}` },
+    { label: "Request-a-quote link", url: `${origin}/quote/?a=${joinCode}` },
+    { label: "Hiring link", url: `${origin}/apply/?a=${joinCode}` },
+  ];
+  function copy(text: string, key: string) { navigator.clipboard?.writeText(text).then(() => { setCopied(key); setTimeout(() => setCopied(""), 1800); }); }
   return (
-    <div className="card flex flex-wrap items-center justify-between gap-4">
-      <div>
-        <h3 className="font-serif text-lg text-ink">Invite your team & families</h3>
-        <p className="mt-1 text-sm text-ink-light">Share this code. Caregivers and families enter it when they create their account to join your agency.</p>
+    <div className="card space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h3 className="font-serif text-lg text-ink">Grow your agency</h3>
+          <p className="mt-1 text-sm text-ink-light">Caregivers and families enter this code to join, or use the shareable links below.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-lg border-2 border-dashed border-brand/40 bg-brand-light px-4 py-2 font-mono text-xl font-bold tracking-[0.3em] text-brand">{joinCode}</span>
+          <button onClick={() => copy(joinCode!, "code")} className="btn-soft">{copied === "code" ? "Copied" : "Copy"}</button>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="rounded-lg border-2 border-dashed border-brand/40 bg-brand-light px-4 py-2 font-mono text-xl font-bold tracking-[0.3em] text-brand">{joinCode}</span>
-        <button onClick={copy} className="btn-soft">{copied ? "Copied" : "Copy"}</button>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {links.map((l) => (
+          <button key={l.label} onClick={() => copy(l.url, l.label)} className="rounded-lg border border-rule px-3 py-2 text-left text-xs transition hover:border-brand/40">
+            <span className="block font-semibold text-ink">{l.label}</span>
+            <span className="block truncate text-ink-light">{copied === l.label ? "Copied to clipboard" : l.url.replace(/^https?:\/\//, "")}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -354,6 +376,18 @@ function BookingDrawer({ booking, caregivers, shifts, onClose, onChange }: { boo
   if (!booking) return null;
   const warnings = scheduleWarnings(caregivers.find((c) => c.userId === caregiverId), when ? new Date(when).toISOString() : "", shifts, booking.bookingId);
 
+  function suggestBest(): string {
+    const t = when ? new Date(when) : null;
+    const scored = caregivers.map((c) => {
+      let score = 0;
+      try { const a = c.availability ? JSON.parse(c.availability) : null; if (a && Array.isArray(a.days) && t) score += a.days.includes(t.getDay()) ? 2 : -1; } catch { /* */ }
+      if (t) { const clash = shifts.find((s) => s.caregiverId === c.userId && (s.status === "scheduled" || s.status === "in_progress") && s.start && Math.abs(new Date(s.start).getTime() - t.getTime()) < 2 * 3600e3); score += clash ? -3 : 1; }
+      if (booking && (booking.credential && booking.credential !== "none") && (c.credentials || "")) score += 1;
+      return { id: c.userId, score };
+    }).sort((a, b) => b.score - a.score);
+    return scored[0]?.id || "";
+  }
+
   async function act(action: string, extra: Record<string, unknown> = {}) {
     setBusy(true);
     try { await apiPost("/api/bookings", { action, bookingId: booking!.bookingId, ...extra }); onChange(); }
@@ -381,7 +415,10 @@ function BookingDrawer({ booking, caregivers, shifts, onClose, onChange }: { boo
         {canManage && (
           <div className="space-y-4 border-t border-rule pt-5">
             <div>
-              <label className="label">Assign caregiver</label>
+              <div className="flex items-center justify-between">
+                <label className="label">Assign caregiver</label>
+                {caregivers.length > 0 && <button type="button" onClick={() => setCaregiverId(suggestBest())} className="text-xs font-semibold text-brand hover:underline">Suggest best match</button>}
+              </div>
               <select className="field" value={caregiverId} onChange={(e) => setCaregiverId(e.target.value)}>
                 <option value="">Unassigned</option>
                 {caregivers.map((c) => <option key={c.userId} value={c.userId}>{c.name || c.email}{c.credentials ? ` (${c.credentials})` : ""}</option>)}
@@ -424,11 +461,23 @@ function Row({ k, v }: { k: string; v: string }) {
 }
 
 // ---------------------------------------------------------------- reports
-function Reports({ bookings, shifts, invoices, leadCounts }: {
-  bookings: Booking[]; shifts: Shift[];
+function Reports({ bookings, shifts, invoices, caregivers, leadCounts }: {
+  bookings: Booking[]; shifts: Shift[]; caregivers: Caregiver[];
   invoices: { amount: string; status: string; createdAt: string }[];
   leadCounts: Record<string, number>;
 }) {
+  const shiftHours = (s: Shift) => (s.clockIn && s.clockOut ? Math.max(0, (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 3600000) : 0);
+  const collected = invoices.filter((i) => i.status === "paid").reduce((a, i) => a + (parseFloat(i.amount) || 0), 0);
+  const outstanding = invoices.filter((i) => i.status === "unpaid").reduce((a, i) => a + (parseFloat(i.amount) || 0), 0);
+  const completed = shifts.filter((s) => s.status === "completed");
+  const totalHours = completed.reduce((a, s) => a + shiftHours(s), 0);
+  const rates = caregivers.map((c) => parseFloat(c.rate || "0")).filter((r) => r > 0);
+  const avgRate = rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
+  const estLabor = totalHours * avgRate;
+  const estMargin = collected - estLabor;
+  const assignable = shifts.filter((s) => s.status !== "cancelled").length;
+  const filled = shifts.filter((s) => s.status !== "open" && s.status !== "cancelled").length;
+  const fillRate = assignable ? Math.round((filled / assignable) * 100) : 0;
   const now = Date.now();
   const bookingBars: { label: string; value: number; tone: string }[] = [];
   const revenueBars: { label: string; value: number; tone: string }[] = [];
@@ -448,8 +497,15 @@ function Reports({ bookings, shifts, invoices, leadCounts }: {
   const converted = leadCounts.client || 0;
   const totalLeads = Object.values(leadCounts).reduce((a, b) => a + b, 0);
 
+  const money = (n: number) => "$" + Math.round(n).toLocaleString();
   return (
     <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="card"><div className="text-2xl font-semibold text-ok">{money(collected)}</div><div className="mt-1 text-xs text-ink-light">Collected</div></div>
+        <div className="card"><div className="text-2xl font-semibold text-gold-dark">{money(outstanding)}</div><div className="mt-1 text-xs text-ink-light">Outstanding</div></div>
+        <div className="card"><div className="text-2xl font-semibold text-brand">{fillRate}%</div><div className="mt-1 text-xs text-ink-light">Shift fill rate</div></div>
+        <div className="card"><div className="text-2xl font-semibold text-ink">{money(estMargin)}</div><div className="mt-1 text-xs text-ink-light">Est. margin{avgRate ? "" : " (set pay rates)"}</div></div>
+      </div>
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="card"><h3 className="mb-4 font-serif text-lg text-ink">Bookings — last 6 weeks</h3><BarChart data={bookingBars} /></div>
         <div className="card"><h3 className="mb-4 font-serif text-lg text-ink">Revenue collected — last 6 weeks</h3><BarChart data={revenueBars} prefix="$" /></div>
@@ -503,20 +559,108 @@ function Clients({ clients, caregivers, joinCode, onChange }: { clients: Client[
 }
 
 // ---------------------------------------------------------------- staff
-function Staff({ caregivers, joinCode }: { caregivers: Caregiver[]; joinCode?: string }) {
+function credentialState(expiry?: string): { tone: string; label: string } | null {
+  if (!expiry) return null;
+  const d = new Date(expiry); if (isNaN(d.getTime())) return null;
+  const days = Math.ceil((d.getTime() - Date.now()) / 864e5);
+  if (days < 0) return { tone: "badge-danger", label: `Expired ${d.toLocaleDateString()}` };
+  if (days <= 30) return { tone: "badge-warn", label: `Expires in ${days}d` };
+  return { tone: "badge-ok", label: `Valid to ${d.toLocaleDateString()}` };
+}
+
+function Staff({ caregivers, joinCode, onChange }: { caregivers: Caregiver[]; joinCode?: string; onChange: () => void }) {
+  const expiring = caregivers.filter((c) => { const s = credentialState(c.credentialExpiry); return s && s.tone !== "badge-ok"; });
   return (
     <div className="space-y-4">
       <ShareCode joinCode={joinCode} />
-      {caregivers.length === 0 && <div className="card"><p className="text-sm text-ink-light">No caregivers have joined yet. Share your agency code above — when they sign up as a caregiver with it, they appear here.</p></div>}
-      {caregivers.map((c) => (
-        <div key={c.userId} className="card flex items-center justify-between">
-          <div>
-            <div className="font-medium text-ink">{c.name || c.email}</div>
-            <div className="text-xs text-ink-light">{c.email}{c.phone ? ` · ${c.phone}` : ""}{c.credentials ? ` · ${c.credentials}` : ""}</div>
+      {expiring.length > 0 && <div className="card border-gold/40 bg-gold/5 text-sm text-gold-dark">{expiring.length} caregiver credential{expiring.length === 1 ? "" : "s"} expired or expiring soon — update below.</div>}
+      {caregivers.length === 0 && <div className="card"><p className="text-sm text-ink-light">No caregivers have joined yet. Share your hiring link — applicants appear under Recruiting, and once they sign up with your code they show here.</p></div>}
+      {caregivers.map((c) => <StaffRow key={c.userId} c={c} onChange={onChange} />)}
+    </div>
+  );
+}
+
+function StaffRow({ c, onChange }: { c: Caregiver; onChange: () => void }) {
+  const [edit, setEdit] = useState(false);
+  const [cred, setCred] = useState(c.credentials || "");
+  const [exp, setExp] = useState(c.credentialExpiry || "");
+  const [rate, setRate] = useState(c.rate || "");
+  const cs = credentialState(c.credentialExpiry);
+  async function save() { await apiPost("/api/agency", { action: "set_caregiver", userId: c.userId, credentials: cred, credentialExpiry: exp, rate }); setEdit(false); onChange(); }
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="font-medium text-ink">{c.name || c.email}</div>
+          <div className="text-xs text-ink-light">{c.email}{c.phone ? ` · ${c.phone}` : ""}{c.credentials ? ` · ${c.credentials}` : ""}{c.rate ? ` · $${c.rate}/hr` : ""}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          {cs && <span className={cs.tone}>{cs.label}</span>}
+          <button onClick={() => setEdit((v) => !v)} className="btn-ghost btn-sm">{edit ? "Close" : "Edit"}</button>
+        </div>
+      </div>
+      {edit && (
+        <div className="mt-3 grid gap-3 border-t border-rule pt-3 sm:grid-cols-3">
+          <div><label className="label">Credentials</label><input className="field field-sm" value={cred} onChange={(e) => setCred(e.target.value)} placeholder="CNA, CPR" /></div>
+          <div><label className="label">Credential expiry</label><input type="date" className="field field-sm" value={exp} onChange={(e) => setExp(e.target.value)} /></div>
+          <div><label className="label">Pay rate $/hr</label><input className="field field-sm" value={rate} onChange={(e) => setRate(e.target.value)} /></div>
+          <button onClick={save} className="btn-primary btn-sm sm:col-span-3 sm:w-auto">Save</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- recruiting
+function Recruiting({ joinCode, onChange }: { joinCode?: string; onChange: () => void }) {
+  const [apps, setApps] = useState<Record<string, string>[]>([]);
+  const load = useCallback(async () => { const d = await apiGet("/api/applications").catch(() => ({ applications: [] })); setApps(d.applications || []); }, []);
+  useEffect(() => { load(); }, [load]);
+  async function act(id: string, action: string) { await apiPost("/api/applications", { action, appId: id }); load(); onChange(); }
+  const open = apps.filter((a) => a.status === "new");
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return (
+    <div className="space-y-4">
+      {joinCode && <div className="card flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-serif text-lg text-ink">Your hiring page</h3><p className="mt-1 text-sm text-ink-light">Share this link to collect caregiver applications.</p></div><code className="rounded bg-paper px-3 py-2 text-xs text-ink-mid">{origin}/apply/?a={joinCode}</code></div>}
+      {open.length === 0 && <div className="card"><p className="text-sm text-ink-light">No new applications. Share your hiring link to start receiving them.</p></div>}
+      {open.map((a) => (
+        <div key={a._id || a.appId} className="card">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="font-medium text-ink">{a.name} <span className="text-ink-light">· {a.phone}{a.city ? ` · ${a.city}` : ""}</span></div>
+              <div className="text-xs text-ink-light">{a.email}</div>
+              <div className="mt-1 text-sm text-ink-mid">{a.credentials ? `${a.credentials} · ` : ""}{a.experience}</div>
+              {a.services && <div className="mt-1 text-xs text-ink-light">Services: {a.services}</div>}
+              {a.availability && <div className="text-xs text-ink-light">Available: {a.availability}</div>}
+              {a.details && <div className="mt-1 text-xs text-ink-light">{a.details}</div>}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button onClick={() => act(a._id || a.appId, "accept")} className="btn-primary btn-sm">Accept</button>
+              <button onClick={() => act(a._id || a.appId, "decline")} className="btn-ghost btn-sm">Decline</button>
+            </div>
           </div>
-          <span className="badge-ok">{c.status}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- activity
+function Activity() {
+  const [events, setEvents] = useState<Record<string, string>[]>([]);
+  useEffect(() => { apiGet("/api/events").then((d) => setEvents(d.events || [])).catch(() => {}); }, []);
+  return (
+    <div className="card">
+      {events.length === 0 && <p className="text-sm text-ink-light">No activity recorded yet.</p>}
+      <ul className="space-y-3">
+        {events.map((e, i) => (
+          <li key={i} className="flex items-start gap-3 text-sm">
+            <span className="mt-1.5 stat-dot bg-brand" />
+            <span className="flex-1"><span className="text-ink">{e.text}</span> <span className="text-ink-light">· {e.actor}</span></span>
+            <span className="shrink-0 text-xs text-ink-light">{e.createdAt ? new Date(e.createdAt).toLocaleString() : ""}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -584,7 +728,7 @@ function ServiceRow({ s, onChange }: { s: Service; onChange: () => void }) {
 interface Invoice { invoiceId: string; amount: string; status: string; serviceName: string; recipientName: string; householdName: string; createdAt: string }
 interface PayRow { userId: string; name: string; shifts: number; hours: number; gross: number }
 
-function Money({ onGo }: { onGo: (k: string) => void }) {
+function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
   const [connect, setConnect] = useState<{ connected: boolean; chargesEnabled?: boolean } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [pay, setPay] = useState<{ rows: PayRow[]; total: number; backboneReady: boolean; provider?: string }>({ rows: [], total: 0, backboneReady: false });
@@ -630,6 +774,14 @@ function Money({ onGo }: { onGo: (k: string) => void }) {
   return (
     <div className="space-y-6">
       {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
+
+      <div className="card flex items-center justify-between">
+        <div>
+          <h3 className="font-serif text-lg text-ink">Your Care Royal plan</h3>
+          <p className="mt-1 text-sm text-ink-light">Billing for your Care Royal subscription is handled by Care Royal. You keep 100% of client payments minus card fees.</p>
+        </div>
+        <span className="badge-brand capitalize">{plan || "trial"}</span>
+      </div>
 
       <div className="card">
         <h3 className="mb-2 font-serif text-lg text-ink">Payments</h3>

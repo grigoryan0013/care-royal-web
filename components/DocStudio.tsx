@@ -7,7 +7,7 @@ import { calculateStub, FREQUENCIES } from "../app/lib/tax";
 // invoice, receipt, verification letter). Client-side only: it produces the
 // DOCUMENTS. Care Royal never files taxes or moves money.
 
-type DocType = "paystub" | "invoice" | "receipt" | "letter";
+type DocType = "paystub" | "invoice" | "receipt" | "letter" | "careplan";
 interface Company { name: string; ein: string; address: string; phone: string; email: string }
 interface Caregiver { userId: string; name: string; email: string }
 interface Item { desc: string; qty: string; rate: string }
@@ -20,6 +20,7 @@ const TYPES: { key: DocType; label: string }[] = [
   { key: "invoice", label: "Invoice" },
   { key: "receipt", label: "Receipt" },
   { key: "letter", label: "Verification letter" },
+  { key: "careplan", label: "Care plan" },
 ];
 
 export default function DocStudio({ tenantId, tenantName, caregivers = [], defaultEmployee }: { tenantId: string; tenantName?: string; caregivers?: Caregiver[]; defaultEmployee?: string }) {
@@ -51,6 +52,9 @@ export default function DocStudio({ tenantId, tenantName, caregivers = [], defau
   const [position, setPosition] = useState("Caregiver");
   const [startDate, setStartDate] = useState("");
   const [recipient, setRecipient] = useState("To whom it may concern");
+  // care plan
+  const [conditions, setConditions] = useState("");
+  const [goals, setGoals] = useState("Maintain safety and independence at home; support daily activities; monitor wellbeing and communicate changes to the family.");
 
   useEffect(() => {
     try { const c = localStorage.getItem(CO_KEY); if (c) setCompany(JSON.parse(c)); else setCompany((p) => ({ ...p, name: tenantName || p.name })); } catch { /* */ }
@@ -65,8 +69,8 @@ export default function DocStudio({ tenantId, tenantName, caregivers = [], defau
 
   const html = useMemo(() => renderDoc(type, {
     company, sig, emp, empAddr, ssn, freq, payDate, periodNo, stub,
-    billTo, items, docNo, method, itemsTotal, position, startDate, recipient, annual,
-  }), [type, company, sig, emp, empAddr, ssn, freq, payDate, periodNo, stub, billTo, items, docNo, method, itemsTotal, position, startDate, recipient, annual]);
+    billTo, items, docNo, method, itemsTotal, position, startDate, recipient, annual, conditions, goals,
+  }), [type, company, sig, emp, empAddr, ssn, freq, payDate, periodNo, stub, billTo, items, docNo, method, itemsTotal, position, startDate, recipient, annual, conditions, goals]);
 
   function download() {
     const w = window.open("", "_blank");
@@ -171,6 +175,14 @@ export default function DocStudio({ tenantId, tenantName, caregivers = [], defau
             </>
           )}
 
+          {type === "careplan" && (
+            <>
+              <input className={field} placeholder="Care recipient name" value={emp} onChange={(e) => setEmp(e.target.value)} />
+              <div><label className="label">Conditions / needs</label><textarea className={field} rows={2} value={conditions} onChange={(e) => setConditions(e.target.value)} placeholder="e.g. limited mobility, diabetes, early dementia" /></div>
+              <div><label className="label">Care goals (draft — edit freely)</label><textarea className={field} rows={4} value={goals} onChange={(e) => setGoals(e.target.value)} /></div>
+            </>
+          )}
+
           <div className="border-t border-rule pt-3">
             {sig ? (
               <div className="flex items-center gap-3">
@@ -197,7 +209,7 @@ export default function DocStudio({ tenantId, tenantName, caregivers = [], defau
 interface RenderData {
   company: Company; sig: string; emp: string; empAddr: string; ssn: string; freq: string; payDate: string; periodNo: string;
   stub: ReturnType<typeof calculateStub>; billTo: string; items: Item[]; docNo: string; method: string; itemsTotal: number;
-  position: string; startDate: string; recipient: string; annual: string;
+  position: string; startDate: string; recipient: string; annual: string; conditions: string; goals: string;
 }
 
 function sigBlock(d: RenderData) {
@@ -243,6 +255,16 @@ function renderDoc(type: DocType, d: RenderData): string {
         <tr style="border-top:2px solid #14181B;font-weight:700"><td colspan="3" style="padding:8px 0">${type === "receipt" ? "Total paid" : "Total due"}</td><td style="text-align:right">${usd(d.itemsTotal)}</td></tr>
       </table>
       ${type === "receipt" ? '<div style="margin-top:20px;color:#1f9d55;font-weight:600">Paid — thank you.</div>' : ""}
+      ${sigBlock(d)}`);
+  }
+  if (type === "careplan") {
+    return wrap(head(d) + `
+      <div style="font-family:'Fraunces',Georgia,serif;font-size:20px;color:#4B39EF;margin-bottom:4px">Care Plan</div>
+      <div style="color:#57636C;font-size:11px;margin-bottom:16px">Prepared ${new Date().toLocaleDateString()}</div>
+      <div style="margin-bottom:12px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8b95a1">Care recipient</span><div style="font-weight:600">${esc(d.emp || "—")}</div></div>
+      <div style="margin-bottom:12px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8b95a1">Conditions & needs</span><div>${esc(d.conditions) || "—"}</div></div>
+      <div style="margin-bottom:12px"><span style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8b95a1">Care goals</span><div style="white-space:pre-wrap">${esc(d.goals)}</div></div>
+      <div style="margin-top:8px;font-size:10px;color:#8b95a1">This care plan is a draft to be reviewed and approved with the family.</div>
       ${sigBlock(d)}`);
   }
   // letter
