@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { verifySession, apiGet, apiPost, signOutUser } from "../lib/session";
+import { verifySession, apiGet, apiPost, signOutAndRedirect } from "../lib/session";
 
 interface Tenant {
   tenantId: string; name: string; plan: string; status: string;
@@ -94,7 +94,7 @@ export default function AdminConsole() {
             <h1 className="font-serif text-2xl text-ink">Care Royal — Platform</h1>
             <p className="text-sm text-ink-light">Approve and manage agencies on the network.</p>
           </div>
-          <button className="btn-ghost" onClick={() => { void signOutUser(); router.replace("/login/"); }}>Sign out</button>
+          <button className="btn-ghost" onClick={() => signOutAndRedirect()}>Sign out</button>
         </div>
       </header>
 

@@ -6,7 +6,7 @@ import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
 import Icon from "../../components/Icon";
 import { CashOut, SwapBoard } from "../../components/AdvancedPanels";
-import { apiGet, apiPost, verifySession, signOutUser, type SessionUser } from "../lib/session";
+import { apiGet, apiPost, verifySession, signOutAndRedirect, type SessionUser } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "schedule", label: "My schedule", icon: "schedule" },
@@ -75,7 +75,7 @@ export default function CaregiverPortal() {
               ? "Your access has been paused. Please contact your agency."
               : "Thanks for joining. Your agency needs to approve your account before you can see your shifts — you'll be able to sign in as soon as they do."}
           </p>
-          <button className="btn-ghost mt-6" onClick={() => { void signOutUser(); window.location.href = "/login/"; }}>Sign out</button>
+          <button className="btn-ghost mt-6" onClick={() => signOutAndRedirect()}>Sign out</button>
         </div>
       </div>
     );

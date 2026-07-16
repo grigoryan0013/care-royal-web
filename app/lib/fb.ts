@@ -389,18 +389,41 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     const [households, recipients, users, profiles] = await Promise.all([readCol("households", T), readCol("recipients", T), readCol("users", T), readCol("caregiverProfiles", T)]);
     if (method === "GET") {
       const clients = households.map((h) => ({ ...h, recipients: recipients.filter((r) => r.householdId === h.householdId) }));
-      const caregivers = users.filter((u) => u.role === "caregiver").map((u) => { const pr = byId(profiles, "userId", u.userId || u._id); return { userId: u.userId || u._id, name: u.name, email: u.email, phone: u.phone || "", credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", bgCheckStatus: pr?.bgCheckStatus || "", status: "active" }; });
-      return { clients, caregivers };
+      const joined = users.filter((u) => u.role === "caregiver").map((u) => { const pr = byId(profiles, "userId", u.userId || u._id); return { userId: u.userId || u._id, name: u.name, email: u.email, phone: u.phone || "", credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", bgCheckStatus: pr?.bgCheckStatus || "", status: "active" }; });
+      // Imported roster: caregiverProfiles with no linked login account yet.
+      const roster = profiles.filter((pr) => (pr.imported === "true" || !pr.userId) && (pr.name || pr.email)).map((pr) => ({ userId: pr._id || pr.profileId, name: pr.name || "", email: pr.email || "", phone: pr.phone || "", credentials: pr.credentials || "", credentialExpiry: pr.credentialExpiry || "", rate: pr.rate || "", availability: "", bgCheckStatus: pr.bgCheckStatus || "", status: "roster" }));
+      return { clients, caregivers: [...joined, ...roster] };
     }
     if (body.action === "assign_caregiver") { await update("households", body.householdId, { primaryCaregiverId: body.caregiverId || "" }); return ok(); }
     if (body.action === "set_caregiver") {
       const profs = await readCol("caregiverProfiles", T);
-      const pr = profs.find((x) => x.userId === body.userId);
+      const pr = profs.find((x) => x.userId === body.userId) || profs.find((x) => (x._id || x.profileId) === body.userId);
       const patch: Row = {};
       for (const k of ["credentials", "credentialExpiry", "rate"]) if (k in body) patch[k] = String(body[k]);
       if (pr) await update("caregiverProfiles", pr._id || pr.profileId, patch);
       else await create("caregiverProfiles", "profileId", { tenantId: T, userId: body.userId, ...patch, createdAt: now() });
       return ok();
+    }
+    // ---- CSV import: clients (household + primary care recipient) ----
+    if (body.action === "import_clients") {
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      for (const r of rows) {
+        if (!r.name && !r.recipient && !r.email && !r.phone) continue;
+        const hh = await create("households", "householdId", { tenantId: T, primaryUserId: "", name: r.name || r.recipient || "Imported client", address: r.address || "", city: r.city || "", zip: r.zip || "", phone: r.phone || "", email: r.email || "", source: "import", createdAt: now() });
+        await create("recipients", "recipientId", { tenantId: T, householdId: hh.householdId, name: r.recipient || r.name || "Care recipient", type: "person", dob: "", address: r.address || "", conditions: r.conditions || "", notes: r.notes || "", photoUrl: "", createdAt: now() });
+      }
+      void logEvent(`Imported ${rows.length} client${rows.length === 1 ? "" : "s"}`);
+      return { ok: true, imported: rows.length };
+    }
+    // ---- CSV import: staff roster (no login account until they sign up) ----
+    if (body.action === "import_staff") {
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      for (const r of rows) {
+        if (!r.name && !r.email && !r.phone) continue;
+        await create("caregiverProfiles", "profileId", { tenantId: T, userId: "", imported: "true", name: r.name || "", email: r.email || "", phone: r.phone || "", credentials: r.credentials || "", credentialExpiry: r.credentialExpiry || r.expiry || "", rate: r.rate || "", bio: "", availability: "", createdAt: now() });
+      }
+      void logEvent(`Imported ${rows.length} staff member${rows.length === 1 ? "" : "s"}`);
+      return { ok: true, imported: rows.length };
     }
   }
 

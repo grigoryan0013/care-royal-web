@@ -255,12 +255,23 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   // ---- agency aggregate
   if (p === "/api/agency" && method === "GET") {
     const clients = db.Households.map((h) => ({ ...h, recipients: db.Recipients.filter((r) => r.householdId === h.householdId) }));
-    const caregivers = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", bgCheckStatus: pr?.bgCheckStatus || "", status: "active" }; });
-    return { clients, caregivers };
+    const joined = db.Users.filter((u) => u.role === "caregiver").map((u) => { const pr = db.CaregiverProfiles.find((c) => c.userId === u.userId); return { userId: u.userId, name: u.name, email: u.email, phone: u.phone, credentials: pr?.credentials || "", credentialExpiry: pr?.credentialExpiry || "", rate: pr?.rate || "", availability: pr?.availability || "", bgCheckStatus: pr?.bgCheckStatus || "", status: "active" }; });
+    const roster = db.CaregiverProfiles.filter((pr) => (pr.imported === "true" || !pr.userId) && (pr.name || pr.email)).map((pr) => ({ userId: pr.profileId || "", name: pr.name || "", email: pr.email || "", phone: pr.phone || "", credentials: pr.credentials || "", credentialExpiry: pr.credentialExpiry || "", rate: pr.rate || "", availability: "", bgCheckStatus: "", status: "roster" }));
+    return { clients, caregivers: [...joined, ...roster] };
   }
   if (p === "/api/agency" && method === "POST") {
     if (body.action === "assign_caregiver") { const h = hhById(String(body.householdId)); if (h) h.primaryCaregiverId = String(body.caregiverId || ""); write(db); return ok(); }
     if (body.action === "set_caregiver") { let pr = db.CaregiverProfiles.find((c) => c.userId === body.userId); if (!pr) { pr = { userId: String(body.userId), tenantId: IDS.tenant }; db.CaregiverProfiles.push(pr); } for (const k of ["credentials", "credentialExpiry", "rate"]) if (k in body) pr[k] = String((body as Row)[k]); write(db); return ok(); }
+    if (body.action === "import_clients") {
+      const rows = Array.isArray(body.rows) ? (body.rows as Row[]) : [];
+      for (const r of rows) { if (!r.name && !r.recipient && !r.email && !r.phone) continue; const hid = id("hh"); db.Households.push({ householdId: hid, tenantId: IDS.tenant, primaryUserId: "", name: r.name || r.recipient || "Imported client", address: r.address || "", city: r.city || "", zip: r.zip || "", phone: r.phone || "", email: r.email || "" }); db.Recipients.push({ recipientId: id("r"), tenantId: IDS.tenant, householdId: hid, name: r.recipient || r.name || "Care recipient", type: "person", conditions: r.conditions || "", notes: r.notes || "" }); }
+      write(db); return { ok: true, imported: rows.length };
+    }
+    if (body.action === "import_staff") {
+      const rows = Array.isArray(body.rows) ? (body.rows as Row[]) : [];
+      for (const r of rows) { if (!r.name && !r.email && !r.phone) continue; db.CaregiverProfiles.push({ profileId: id("cp"), userId: "", imported: "true", tenantId: IDS.tenant, name: r.name || "", email: r.email || "", phone: r.phone || "", credentials: r.credentials || "", credentialExpiry: r.credentialExpiry || "", rate: r.rate || "" }); }
+      write(db); return { ok: true, imported: rows.length };
+    }
   }
 
   // ---- caregiver self profile

@@ -8,7 +8,7 @@ import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore"
 import { auth, db } from "./firebase";
 import { fbHandle, clearProfileCache } from "./fb";
 import { DEFAULT_SERVICES } from "./catalog";
-import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle } from "./demo";
+import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disableDemo } from "./demo";
 
 export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
 // Care Royal platform super-admins (recognized by login email — no tenant).
@@ -145,12 +145,24 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   return { userId: uid, tenantId, email, role, name, status, ...(role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {}) };
 }
 
-export function signOutUser() {
+export async function signOutUser() {
   clearProfileCache();
-  return signOut(auth());
+  try { disableDemo(); } catch { /* ignore */ }          // clear demo session too
+  try { await signOut(auth()); } catch { /* ignore */ }   // must finish before redirect
 }
 // Back-compat name used by PortalShell.
 export function clearSession() { void signOutUser(); }
+
+// Sign out fully, THEN hard-navigate to the login page. Awaiting the sign-out
+// first prevents the login page from seeing a stale session and bouncing back;
+// the redirect is basePath-aware so it lands on /app/login/ (not the root).
+export async function signOutAndRedirect() {
+  await signOutUser();
+  if (typeof window !== "undefined") {
+    const bp = process.env.NEXT_PUBLIC_BASE_PATH || "";
+    window.location.href = `${bp}/login/`;
+  }
+}
 
 export async function apiGet(path: string): Promise<any> {
   if (isDemoBackend()) return demoHandle("GET", path);

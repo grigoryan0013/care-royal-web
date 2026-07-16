@@ -9,7 +9,7 @@ import { BarChart, Donut } from "../../components/Charts";
 import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
 import { AiPanel, BillingPanel, GrowthPanel, BenchmarkPanel, PayoutsPanel, BackgroundCheck } from "../../components/AdvancedPanels";
-import { apiGet, apiPost, signOutUser, verifySession, MANAGER_PERMISSION_KEYS, type SessionUser } from "../lib/session";
+import { apiGet, apiPost, signOutAndRedirect, verifySession, MANAGER_PERMISSION_KEYS, type SessionUser } from "../lib/session";
 
 const nav: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -141,7 +141,7 @@ export default function AgencyPortal() {
           </p>
           <button
             className="btn-ghost mt-6"
-            onClick={() => { void signOutUser(); window.location.href = "/login/"; }}
+            onClick={() => signOutAndRedirect()}
           >
             Sign out
           </button>
@@ -164,7 +164,7 @@ export default function AgencyPortal() {
               ? "Your manager access has been paused. Please contact your agency owner."
               : "Your manager account was created. Your agency owner needs to approve it and set your permissions before you can get in — you'll be able to sign in as soon as they do."}
           </p>
-          <button className="btn-ghost mt-6" onClick={() => { void signOutUser(); window.location.href = "/login/"; }}>Sign out</button>
+          <button className="btn-ghost mt-6" onClick={() => signOutAndRedirect()}>Sign out</button>
         </div>
       </div>
     );
@@ -710,6 +710,12 @@ function Clients({ clients, caregivers, joinCode, onChange }: { clients: Client[
   return (
     <div className="space-y-4">
       <ShareCode joinCode={joinCode} />
+      <CsvImport
+        label="Import clients"
+        hint="Columns: name, recipient, phone, email, address, city, zip, conditions, notes. Each row becomes a client household with one care recipient."
+        fields={{ name: ["client", "household", "name"], recipient: ["recipient", "care for", "patient", "loved one"], phone: ["phone", "tel", "mobile"], email: ["email"], address: ["address", "street"], city: ["city", "town"], zip: ["zip", "postal"], conditions: ["condition", "diagnos", "care need"], notes: ["note"] }}
+        onImport={async (rows) => { const r = await apiPost("/api/agency", { action: "import_clients", rows }); onChange(); return r.imported ?? rows.length; }}
+      />
       {clients.length === 0 && <div className="card"><p className="text-sm text-ink-light">No client households yet. Families join with your agency code, or you can add them after a consultation.</p></div>}
       {clients.map((c) => (
         <div key={c.householdId} className="card">
@@ -751,6 +757,12 @@ function Staff({ caregivers, joinCode, onChange }: { caregivers: Caregiver[]; jo
   return (
     <div className="space-y-4">
       <ShareCode joinCode={joinCode} />
+      <CsvImport
+        label="Import staff"
+        hint="Columns: name, email, phone, credentials, rate, credential expiry. Imported staff appear on your roster; they get portal access once they sign up with your agency code."
+        fields={{ name: ["name"], email: ["email"], phone: ["phone", "tel", "mobile"], credentials: ["credential", "license", "cert"], rate: ["rate", "pay", "wage"], credentialExpiry: ["expiry", "expire", "expiration"] }}
+        onImport={async (rows) => { const r = await apiPost("/api/agency", { action: "import_staff", rows }); onChange(); return r.imported ?? rows.length; }}
+      />
       {expiring.length > 0 && <div className="card border-gold/40 bg-gold/5 text-sm text-gold-dark">{expiring.length} caregiver credential{expiring.length === 1 ? "" : "s"} expired or expiring soon — update below.</div>}
       {caregivers.length === 0 && <div className="card"><p className="text-sm text-ink-light">No caregivers have joined yet. Share your hiring link — applicants appear under Recruiting, and once they sign up with your code they show here.</p></div>}
       {caregivers.map((c) => <StaffRow key={c.userId} c={c} onChange={onChange} />)}
@@ -1150,6 +1162,57 @@ function parseCsv(text: string): string[][] {
   }
   if (cell.length || row.length) { row.push(cell); rows.push(row); }
   return rows.filter((r) => r.some((x) => x.trim() !== ""));
+}
+
+// Reusable CSV importer. `fields` maps an output key -> header-name aliases;
+// columns are matched case-insensitively by substring, order-independent.
+function CsvImport({ label, hint, fields, onImport }: {
+  label: string; hint: string;
+  fields: Record<string, string[]>;
+  onImport: (rows: Record<string, string>[]) => Promise<number>;
+}) {
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true); setStatus("Reading file…");
+    try {
+      const rows = parseCsv(await file.text());
+      if (rows.length < 2) { setStatus("That file had no data rows."); return; }
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      const idx = (names: string[]) => header.findIndex((h) => names.some((n) => h.includes(n)));
+      const map: Record<string, number> = {};
+      for (const k in fields) map[k] = idx(fields[k]);
+      const objs = rows.slice(1).map((r) => {
+        const o: Record<string, string> = {};
+        for (const k in map) o[k] = map[k] >= 0 ? (r[map[k]] || "").trim() : "";
+        return o;
+      }).filter((o) => Object.values(o).some((v) => v !== ""));
+      let done = 0;
+      for (let i = 0; i < objs.length; i += 300) {
+        setStatus(`Importing ${done}/${objs.length}…`);
+        done += await onImport(objs.slice(i, i + 300));
+      }
+      setStatus(`Imported ${done} row${done === 1 ? "" : "s"}.`);
+    } catch { setStatus("Couldn't read that file. Please upload a .csv."); }
+    finally { setBusy(false); e.target.value = ""; }
+  }
+  return (
+    <div className="card">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-serif text-lg text-ink">{label}</h3>
+          <p className="mt-1 text-sm text-ink-light">{hint}</p>
+        </div>
+        <label className={`btn-primary btn-sm shrink-0 cursor-pointer ${busy ? "pointer-events-none opacity-60" : ""}`}>
+          {busy ? "Importing…" : "Upload CSV"}
+          <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} disabled={busy} />
+        </label>
+      </div>
+      {status && <p className="mt-3 text-sm text-brand">{status}</p>}
+    </div>
+  );
 }
 
 function Leads() {

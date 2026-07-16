@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { verifySession, clearSession, homeForRole, apiGet, type Role, type SessionUser } from "../app/lib/session";
+import { verifySession, signOutAndRedirect, homeForRole, apiGet, type Role, type SessionUser } from "../app/lib/session";
 import Icon, { type IconName } from "./Icon";
 
 interface Branding { displayName?: string; logoUrl?: string; brandColor?: string; accentColor?: string }
@@ -94,8 +94,7 @@ export default function PortalShell({
   }
 
   function signOut() {
-    clearSession();
-    router.replace("/login/");
+    void signOutAndRedirect();
   }
 
   const initials = (user.name || user.email || "?").trim().split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
