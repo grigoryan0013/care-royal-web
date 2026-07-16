@@ -18,6 +18,12 @@ service cloud.firestore {
     function sameTenantR() { return signedIn() && resource.data.tenantId == myTenant(); }
     function sameTenantW() { return signedIn() && request.resource.data.tenantId == myTenant(); }
 
+    // Platform owner can READ any document (to view all agencies' portals).
+    // Writes stay tenant-scoped, so this is a read-only oversight view.
+    match /{document=**} {
+      allow read: if isSuper();
+    }
+
     // ---- public pre-launch waitlist ----
     match /waitlist/{id} {
       allow create: if true;            // anyone can join

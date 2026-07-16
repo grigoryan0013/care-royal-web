@@ -23,7 +23,13 @@ async function me() {
   if (_profile && _profile.uid === u.uid) return _profile;
   const email = (u.email || "").toLowerCase();
   if (SUPERADMINS.includes(email)) {
-    // Platform owner: no tenant; only touches /api/auth and /api/platform.
+    // If the platform owner is "viewing" an agency, report that tenant/role so
+    // the portals load its data (read-only, allowed by the isSuper() rule).
+    try {
+      const v = typeof window !== "undefined" ? localStorage.getItem("cr_acting") : null;
+      if (v) { const a = JSON.parse(v); if (a && a.tenantId) { _profile = { uid: u.uid, tenantId: a.tenantId, role: a.role || "agency_admin", name: "Care Royal (viewing)", email }; return _profile; } }
+    } catch { /* ignore */ }
+    // Otherwise: platform owner, no tenant; only touches /api/auth and /api/platform.
     _profile = { uid: u.uid, tenantId: "", role: "platform_owner", name: "Care Royal", email };
     return _profile;
   }

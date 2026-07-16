@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { verifySession, signOutAndRedirect, homeForRole, apiGet, type Role, type SessionUser } from "../app/lib/session";
+import { verifySession, signOutAndRedirect, homeForRole, apiGet, getActingTenant, clearActingTenant, type Role, type SessionUser } from "../app/lib/session";
 import Icon, { type IconName } from "./Icon";
 
 interface Branding { displayName?: string; logoUrl?: string; brandColor?: string; accentColor?: string }
@@ -126,8 +126,20 @@ export default function PortalShell({
     </div>
   );
 
+  const acting = getActingTenant();
+  const roleLabel: Record<string, string> = { agency_admin: "Owner", agency_coord: "Owner", manager: "Manager", caregiver: "Staff", family: "Client" };
+
   return (
     <div className="app-bg min-h-screen">
+      {acting && (
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-ink px-4 py-2 text-sm text-white">
+          <span>Viewing <b>{acting.agencyName || "agency"}</b> as {roleLabel[acting.role] || acting.role} — read-only oversight</span>
+          <button
+            className="rounded bg-white/20 px-3 py-1 font-semibold hover:bg-white/30"
+            onClick={() => { clearActingTenant(); window.location.href = `${process.env.NEXT_PUBLIC_BASE_PATH || ""}/admin/`; }}
+          >Exit to admin</button>
+        </div>
+      )}
       <div className="flex min-h-screen">
         {/* Desktop sidebar */}
         <aside className="hidden w-64 shrink-0 flex-col border-r border-rule bg-white md:flex">

@@ -182,6 +182,23 @@ export async function publicPost(path: string, body: Record<string, unknown>) {
   return r;
 }
 
+// ---- Platform-owner "view any agency's portal" (impersonation) --------------
+// The super-admin picks a tenant + role; me() then reports that tenant/role so
+// the portals load that agency's data (read-only via the isSuper() rule).
+const ACTING_KEY = "cr_acting";
+export function setActingTenant(tenantId: string, role: Role, agencyName?: string) {
+  if (typeof window !== "undefined") localStorage.setItem(ACTING_KEY, JSON.stringify({ tenantId, role, agencyName: agencyName || "" }));
+  clearProfileCache();
+}
+export function getActingTenant(): { tenantId: string; role: Role; agencyName?: string } | null {
+  if (typeof window === "undefined") return null;
+  try { const v = localStorage.getItem(ACTING_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+}
+export function clearActingTenant() {
+  if (typeof window !== "undefined") localStorage.removeItem(ACTING_KEY);
+  clearProfileCache();
+}
+
 export function homeForRole(role: Role): string {
   if (role === "platform_owner") return "/admin/";
   if (role === "caregiver") return "/caregiver/";

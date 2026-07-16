@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { verifySession, apiGet, apiPost, signOutAndRedirect } from "../lib/session";
+import { verifySession, apiGet, apiPost, signOutAndRedirect, setActingTenant, homeForRole, type Role } from "../lib/session";
 
 interface Tenant {
   tenantId: string; name: string; plan: string; status: string;
@@ -43,6 +43,13 @@ export default function AdminConsole() {
 
   function fmt(d: string) { return d ? new Date(d).toLocaleDateString() : ""; }
 
+  // Open an agency's portal as a given role (read-only oversight view).
+  function viewAs(t: Tenant, role: Role) {
+    setActingTenant(t.tenantId, role, t.name);
+    router.push(homeForRole(role));
+  }
+  const VIEW_ROLES: [string, Role][] = [["Owner", "agency_admin"], ["Manager", "manager"], ["Staff", "caregiver"], ["Client", "family"]];
+
   const badge = (s: string) =>
     s === "pending" ? "badge-warn" : s === "active" || s === "trial" ? "badge-ok"
     : s === "suspended" ? "badge-gold" : "badge-muted";
@@ -50,31 +57,39 @@ export default function AdminConsole() {
   function card(t: Tenant) {
     const b = busy.startsWith(t.tenantId);
     return (
-      <div key={t.tenantId} className="flex flex-col gap-3 border-b border-line py-4 last:border-0 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-ink">{t.name}</span>
-            <span className={`badge ${badge(t.status)}`}>{t.status}</span>
-            <span className="badge badge-muted">{t.plan}</span>
+      <div key={t.tenantId} className="border-b border-line py-4 last:border-0">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-ink">{t.name}</span>
+              <span className={`badge ${badge(t.status)}`}>{t.status}</span>
+              <span className="badge badge-muted">{t.plan}</span>
+            </div>
+            <div className="mt-1 text-sm text-ink-light">
+              {t.ownerName ? `${t.ownerName} · ` : ""}{t.ownerEmail || "no email"}{t.city ? ` · ${t.city}` : ""}
+              {t.createdAt ? ` · joined ${fmt(t.createdAt)}` : ""}
+            </div>
           </div>
-          <div className="mt-1 text-sm text-ink-light">
-            {t.ownerName ? `${t.ownerName} · ` : ""}{t.ownerEmail || "no email"}{t.city ? ` · ${t.city}` : ""}
-            {t.createdAt ? ` · joined ${fmt(t.createdAt)}` : ""}
+          <div className="flex shrink-0 gap-2">
+            {t.status === "pending" && (
+              <>
+                <button className="btn-primary" disabled={b} onClick={() => act(t, "approve", "approved")}>Approve</button>
+                <button className="btn-ghost" disabled={b} onClick={() => act(t, "reject", "rejected")}>Reject</button>
+              </>
+            )}
+            {(t.status === "active" || t.status === "trial") && (
+              <button className="btn-ghost" disabled={b} onClick={() => act(t, "suspend", "paused")}>Pause</button>
+            )}
+            {(t.status === "suspended" || t.status === "rejected") && (
+              <button className="btn-primary" disabled={b} onClick={() => act(t, "reactivate", "reactivated")}>Reactivate</button>
+            )}
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
-          {t.status === "pending" && (
-            <>
-              <button className="btn-primary" disabled={b} onClick={() => act(t, "approve", "approved")}>Approve</button>
-              <button className="btn-ghost" disabled={b} onClick={() => act(t, "reject", "rejected")}>Reject</button>
-            </>
-          )}
-          {(t.status === "active" || t.status === "trial") && (
-            <button className="btn-ghost" disabled={b} onClick={() => act(t, "suspend", "paused")}>Pause</button>
-          )}
-          {(t.status === "suspended" || t.status === "rejected") && (
-            <button className="btn-primary" disabled={b} onClick={() => act(t, "reactivate", "reactivated")}>Reactivate</button>
-          )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-ink-light">View portal as</span>
+          {VIEW_ROLES.map(([label, r]) => (
+            <button key={r} className="btn-ghost btn-sm" onClick={() => viewAs(t, r)}>{label}</button>
+          ))}
         </div>
       </div>
     );
