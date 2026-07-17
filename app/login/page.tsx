@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn, signUp, homeForRole, verifySession, apiGet, type SignupRole } from "../lib/session";
+import { hasDemoSession } from "../lib/demo";
 import Icon from "../../components/Icon";
 
 type Tab = "signin" | "signup";
@@ -50,7 +51,8 @@ export default function AuthPage() {
     try {
       if (tab === "signin") {
         const u = await signIn(email, password);
-        router.replace(homeForRole(u.role));
+        // Demo login lands on the hub (all portals + platform-owner console).
+        router.replace(hasDemoSession() ? "/demo/" : homeForRole(u.role));
       } else {
         if (password.length < 6) { setErr("Choose a password with at least 6 characters."); return; }
         const u = await signUp({ role, name, email, password, agencyName, joinCode });

@@ -8,7 +8,11 @@ import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore"
 import { auth, db } from "./firebase";
 import { fbHandle, clearProfileCache } from "./fb";
 import { DEFAULT_SERVICES } from "./catalog";
-import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disableDemo } from "./demo";
+import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disableDemo, enableDemo } from "./demo";
+
+// Documented owner/testing login — enters the in-browser demo (no Firebase).
+export const DEMO_USERNAME = "grigoryan";
+export const DEMO_PASSWORD = "201816";
 
 export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
 // The Care Royal platform super-admins (recognized by login email — no tenant).
@@ -57,7 +61,15 @@ export async function verifySession(): Promise<SessionUser | null> {
 }
 
 export async function signIn(email: string, password: string): Promise<SessionUser> {
-  await signInWithEmailAndPassword(auth(), email.trim(), password);
+  const id = email.trim();
+  // Demo login shortcut: enters the in-browser mock (sample data, all portals via
+  // /demo). No Firebase call — must run before signInWithEmailAndPassword, which
+  // would reject "grigoryan" as an invalid email.
+  if (id.toLowerCase() === DEMO_USERNAME && password === DEMO_PASSWORD) {
+    enableDemo();
+    return demoUser("agency_admin");
+  }
+  await signInWithEmailAndPassword(auth(), id, password);
   clearProfileCache();
   const d = await fbHandle("GET", "/api/auth");
   return d.user as SessionUser;
