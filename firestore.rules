@@ -101,7 +101,8 @@ service cloud.firestore {
       // The Owner manages team members (status/role/permissions). A user may edit
       // their OWN profile but may NOT escalate their own role/status/permissions.
       allow update: if signedIn() && (
-        (isOwner() && resource.data.tenantId == myTenant())
+        isSuper()                                                   // platform owner manages waitlisted people
+        || (isOwner() && resource.data.tenantId == myTenant())
         || (request.auth.uid == uid
             && request.resource.data.role == resource.data.role
             && request.resource.data.get('status', 'active') == resource.data.get('status', 'active')

@@ -136,7 +136,7 @@ export default function AgencyPortal() {
           <p className="mt-3 text-sm text-ink-light">
             {suspended
               ? `${tenant.name || "Your agency"} is currently paused. Please contact The Care Royal to reactivate your account.`
-              : `Thanks for signing up, ${tenant.name || "there"}. Your agency is being reviewed by The Care Royal team — we'll email you at your signup address as soon as it's approved, usually within one business day.`}
+              : `Thanks for signing up, ${tenant.name || "there"}. Our team is reviewing your agency and will reach out with your tailored quote to get you set up — usually within one business day.`}
           </p>
           <p className="mt-4 text-xs text-ink-light">
             Need help? <a className="text-brand" href="mailto:info@thecareroyal.com">info@thecareroyal.com</a>

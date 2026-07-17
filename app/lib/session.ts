@@ -78,7 +78,8 @@ export interface SignupInput {
   password: string;
   phone?: string;
   agencyName?: string;  // role === "agency"
-  joinCode?: string;    // role === "family" | "caregiver"
+  joinCode?: string;    // role === "manager" (required); optional for family/caregiver
+  onboarding?: Record<string, unknown>; // get-started answers, kept for admin review
 }
 
 // Create a real account and provision the right Firestore records.
@@ -123,26 +124,39 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     return { userId: uid, tenantId, email, role: "agency_admin", name };
   }
 
-  // family / caregiver / manager: resolve their agency by join code
+  // family / caregiver / manager. A join code attaches them to an agency;
+  // families & caregivers may also sign up WITHOUT a code (platform leads).
+  // Everyone is WAITLISTED (status "pending") until approved.
   const code = (input.joinCode || "").trim().toUpperCase();
-  const jc = await getDoc(doc(D, "joinCodes", code));
-  if (!jc.exists()) {
-    // roll back the just-created auth user so they can retry cleanly
-    try { await cred.user.delete(); } catch { /* ignore */ }
-    throw new Error("That agency code wasn't found. Ask your care agency for their Care Royal code.");
-  }
-  const tenantId = (jc.data() as { tenantId: string }).tenantId;
   const role: Role = input.role === "family" ? "family" : input.role === "manager" ? "manager" : "caregiver";
-  // Families self-serve immediately; managers and staff need Owner approval first.
-  const status = role === "family" ? "active" : "pending";
-  const extra: Record<string, unknown> = role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {};
-  await setDoc(doc(D, "users", uid), { userId: uid, tenantId, role, name, email, phone: input.phone || "", status, ...extra, createdAt: now() });
-  if (role === "family") {
+  const onboarding = input.onboarding || {};
+  let tenantId = "";
+  if (code) {
+    const jc = await getDoc(doc(D, "joinCodes", code));
+    if (!jc.exists()) {
+      try { await cred.user.delete(); } catch { /* ignore */ }
+      throw new Error("That agency code wasn't found. Please double-check it with the agency.");
+    }
+    tenantId = (jc.data() as { tenantId: string }).tenantId;
+  } else if (role === "manager") {
+    // Managers must join a specific agency — a code is required.
+    try { await cred.user.delete(); } catch { /* ignore */ }
+    throw new Error("Managers need their agency's sign-up code. Please ask your agency owner for it.");
+  }
+  const extra: Record<string, unknown> = {
+    ...(role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {}),
+    ...(Object.keys(onboarding).length ? { onboarding } : {}),
+  };
+  await setDoc(doc(D, "users", uid), {
+    userId: uid, tenantId, role, name, email, phone: input.phone || "",
+    status: "pending", source: code ? "code" : "self", ...extra, createdAt: now(),
+  });
+  if (tenantId && role === "family") {
     await setDoc(doc(collection(D, "households")), { tenantId, primaryUserId: uid, name: name ? `${name}'s household` : "My household", address: "", city: "", zip: "", createdAt: now() });
-  } else if (role === "caregiver") {
+  } else if (tenantId && role === "caregiver") {
     await setDoc(doc(collection(D, "caregiverProfiles")), { tenantId, userId: uid, credentials: "", rate: "", bio: "", createdAt: now() });
   }
-  return { userId: uid, tenantId, email, role, name, status, ...(role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {}) };
+  return { userId: uid, tenantId, email, role, name, status: "pending", ...(role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {}) };
 }
 
 export async function signOutUser() {

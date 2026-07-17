@@ -169,36 +169,35 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
   if (p === "/api/platform") {
     if (m.role !== "platform_owner") return { error: "Not authorized." };
     if (method === "GET") {
-      const snap = await getDocs(collection(db(), "tenants"));
-      const tenants = snap.docs
-        .map((d) => {
-          const t = d.data() as Row;
-          return {
-            tenantId: d.id, name: t.brandName || t.name || "(unnamed)",
-            plan: t.plan || "trial", status: t.status || "active", city: t.city || "",
-            ownerEmail: t.ownerEmail || "", ownerName: t.ownerName || "",
-            createdAt: t.createdAt || "",
-          };
-        })
-        .sort((a, b) => {
-          const rank = (s: string) => (s === "pending" ? 0 : s === "suspended" ? 1 : 2);
-          if (rank(a.status) !== rank(b.status)) return rank(a.status) - rank(b.status);
-          return a.createdAt < b.createdAt ? 1 : -1;
-        });
-      return { tenants };
+      const [tSnap, uSnap] = await Promise.all([getDocs(collection(db(), "tenants")), getDocs(collection(db(), "users"))]);
+      const rank = (s: string) => (s === "pending" ? 0 : s === "suspended" ? 1 : 2);
+      const tenants = tSnap.docs
+        .map((d) => { const t = d.data() as Row; return { tenantId: d.id, name: t.brandName || t.name || "(unnamed)", plan: t.plan || "trial", status: t.status || "active", city: t.city || "", ownerEmail: t.ownerEmail || "", ownerName: t.ownerName || "", createdAt: t.createdAt || "" }; })
+        .sort((a, b) => (rank(a.status) !== rank(b.status) ? rank(a.status) - rank(b.status) : (a.createdAt < b.createdAt ? 1 : -1)));
+      // Waitlisted / all people, for the Managers / Caregivers / Families tabs.
+      const people = uSnap.docs
+        .map((d) => { const u = d.data() as Row; return { userId: d.id, name: u.name || "", email: u.email || "", phone: u.phone || "", role: u.role || "", status: u.status || "active", tenantId: u.tenantId || "", onboarding: (u.onboarding as Row) || {}, createdAt: u.createdAt || "" }; })
+        .filter((u) => u.role === "manager" || u.role === "caregiver" || u.role === "family")
+        .sort((a, b) => (rank(a.status) !== rank(b.status) ? rank(a.status) - rank(b.status) : (a.createdAt < b.createdAt ? 1 : -1)));
+      return { tenants, people };
     }
-    const tid = String(body.tenantId || "");
-    if (!tid) return { error: "Missing tenantId." };
-    if (body.action === "approve") {
-      await update("tenants", tid, { status: "active", approvedAt: now() });
-      // Congratulate the agency owner (best-effort; email fn no-ops if unset).
-      sendEmail({ type: "agency_approved", to: String(body.ownerEmail || ""), agencyName: String(body.agencyName || "") });
-      return ok();
+    // Agency (tenant) actions
+    if (body.tenantId) {
+      const tid = String(body.tenantId);
+      if (body.action === "approve") { await update("tenants", tid, { status: "active", approvedAt: now() }); sendEmail({ type: "agency_approved", to: String(body.ownerEmail || ""), agencyName: String(body.agencyName || "") }); return ok(); }
+      if (body.action === "suspend") { await update("tenants", tid, { status: "suspended" }); return ok(); }
+      if (body.action === "reactivate") { await update("tenants", tid, { status: "active" }); return ok(); }
+      if (body.action === "reject") { await update("tenants", tid, { status: "rejected" }); return ok(); }
     }
-    if (body.action === "suspend") { await update("tenants", tid, { status: "suspended" }); return ok(); }
-    if (body.action === "reactivate") { await update("tenants", tid, { status: "active" }); return ok(); }
-    if (body.action === "reject") { await update("tenants", tid, { status: "rejected" }); return ok(); }
-    return { error: "Unknown action." };
+    // Person (user) actions
+    if (body.userId) {
+      const uid = String(body.userId);
+      if (body.action === "approve") { await update("users", uid, { status: "active" }); return ok(); }
+      if (body.action === "suspend") { await update("users", uid, { status: "suspended" }); return ok(); }
+      if (body.action === "reactivate") { await update("users", uid, { status: "active" }); return ok(); }
+      if (body.action === "reject") { await update("users", uid, { status: "rejected" }); return ok(); }
+    }
+    return { error: "Missing tenantId or userId." };
   }
 
   // ---- agency recruiting inbox (caregiver applications)

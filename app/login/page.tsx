@@ -36,14 +36,11 @@ export default function AuthPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("mode") === "signup") setTab("signup");
-    // Per-agency link (?a=CODE): prefill the join code and show the agency's name.
+    // Creating an account (or arriving via a per-agency ?a=CODE link) goes to the
+    // guided get-started wizard — no role picker here.
+    if (params.get("mode") === "signup") { router.replace("/get-started/"); return; }
     const code = (params.get("a") || "").trim().toUpperCase();
-    if (code) {
-      setJoinCode(code);
-      setTab("signup");
-      apiGet(`/api/agency-public?code=${code}`).then((d) => { if (d?.agency?.name) setAgencyBrand(d.agency.name); }).catch(() => {});
-    }
+    if (code) { router.replace(`/get-started/?code=${code}`); return; }
     verifySession().then((u) => { if (u) router.replace(homeForRole(u.role)); });
   }, [router]);
 
@@ -105,7 +102,7 @@ export default function AuthPage() {
 
           <div className="mb-6 inline-flex rounded-xl border border-rule bg-white p-1 shadow-card">
             <button onClick={() => { setTab("signin"); setErr(""); }} className={tab === "signin" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Sign in</button>
-            <button onClick={() => { setTab("signup"); setErr(""); }} className={tab === "signup" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Create account</button>
+            <button onClick={() => router.push("/get-started/")} className="chip-off !bg-transparent !text-ink-mid">Create account</button>
           </div>
 
           <div className="card">
