@@ -18,7 +18,7 @@ export function printDoc(d: Doc) {
     h1{font-family:'Fraunces',Georgia,serif;color:#4B39EF} .meta{color:#8b95a1;font-size:12px;margin-bottom:24px}
     pre{white-space:pre-wrap;font-family:inherit;font-size:14px} .sig{margin-top:48px;border-top:1px solid #E0E3E7;padding-top:16px}
     .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8b95a1}</style></head>
-    <body><h1>${d.title}</h1><div class="meta">Care Royal${d.householdName ? " — " + d.householdName : ""}</div>
+    <body><h1>${d.title}</h1><div class="meta">The Care Royal${d.householdName ? " — " + d.householdName : ""}</div>
     <pre>${(d.content || "").replace(/</g, "&lt;")}</pre>
     <div class="sig"><div class="lbl">Signature</div>${d.status === "signed" ? sig : "<div style='color:#8b95a1'>Unsigned</div>"}
     ${d.status === "signed" ? `<div class="meta">Signed by ${d.signedBy} on ${d.signedAt ? new Date(d.signedAt).toLocaleString() : ""}</div>` : ""}</div>

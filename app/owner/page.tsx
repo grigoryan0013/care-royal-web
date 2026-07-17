@@ -49,7 +49,7 @@ export default function OwnerConsole() {
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand font-serif text-xl font-semibold text-white">C</span>
             <div>
-              <h1 className="font-serif text-2xl text-ink">Care Royal — Owner</h1>
+              <h1 className="font-serif text-2xl text-ink">The Care Royal — Owner</h1>
               <p className="text-sm text-ink-light">Provision agencies, track revenue, open any workspace.</p>
             </div>
           </div>

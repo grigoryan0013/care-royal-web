@@ -14,10 +14,10 @@ const ROLES: { key: SignupRole; label: string; blurb: string }[] = [
 ];
 
 const HIGHLIGHTS = [
-  "Approve every booking and assign the right caregiver",
-  "One calendar for shifts, clock-ins and coverage",
-  "Care plans and agreements signed in-app",
-  "Invoices and payroll from the same timesheets",
+  "Warm, dependable care for the people you love",
+  "Caregivers matched to your family with care",
+  "One calm place to plan visits and stay close",
+  "Meaningful caregiving work, on a schedule that fits your life",
 ];
 
 export default function AuthPage() {
@@ -71,27 +71,37 @@ export default function AuthPage() {
 
   return (
     <main className="flex min-h-screen">
-      {/* Brand panel */}
-      <aside className="hero-gradient relative hidden w-1/2 flex-col justify-between p-12 text-white lg:flex">
-        <Link href="/" className="font-serif text-2xl font-semibold">Care Royal</Link>
-        <div className="max-w-md">
-          <h2 className="font-serif text-4xl leading-tight">One platform to run your care agency end to end.</h2>
+      {/* Brand panel — warm, welcoming (no blue) with a soft illustrated backdrop */}
+      <aside
+        className="relative hidden w-1/2 flex-col justify-between overflow-hidden p-12 text-white lg:flex"
+        style={{ background: "linear-gradient(155deg,#5c3b34 0%,#a85f4c 48%,#d9a066 100%)" }}
+      >
+        {/* soft decorative shapes */}
+        <svg aria-hidden viewBox="0 0 600 800" className="pointer-events-none absolute inset-0 h-full w-full opacity-25" preserveAspectRatio="xMidYMid slice">
+          <circle cx="480" cy="120" r="160" fill="#ffffff" opacity="0.10" />
+          <circle cx="120" cy="640" r="220" fill="#ffffff" opacity="0.08" />
+          <path d="M300 430c-26-24-70-20-86 10-16-30-60-34-86-10-30 28-14 78 86 150 100-72 116-122 86-150z" fill="#ffffff" opacity="0.18" />
+        </svg>
+        <Link href="/" className="relative font-serif text-2xl font-semibold tracking-wide">The Care Royal</Link>
+        <div className="relative max-w-md">
+          <h2 className="font-serif text-4xl leading-tight">Care you can trust, for the people you love.</h2>
+          <p className="mt-4 text-white/85">Compassionate care and dependable caregivers — brought together with warmth and a personal touch.</p>
           <ul className="mt-8 space-y-3">
             {HIGHLIGHTS.map((h) => (
               <li key={h} className="flex items-start gap-3 text-white/90">
-                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-white/20"><Icon name="check" size={12} /></span>
+                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-white/25"><Icon name="check" size={12} /></span>
                 <span className="text-sm">{h}</span>
               </li>
             ))}
           </ul>
         </div>
-        <p className="text-xs text-white/60">Families, caregivers and your office — together in one place.</p>
+        <p className="relative text-xs text-white/70">Families and caregivers, cared for in one welcoming place.</p>
       </aside>
 
       {/* Form panel */}
       <section className="flex w-full items-center justify-center px-6 py-12 lg:w-1/2">
         <div className="w-full max-w-md">
-          <Link href="/" className="mb-8 block font-serif text-2xl font-semibold text-brand lg:hidden">Care Royal</Link>
+          <Link href="/" className="mb-8 block font-serif text-2xl font-semibold text-ink lg:hidden">The Care Royal</Link>
 
           <div className="mb-6 inline-flex rounded-xl border border-rule bg-white p-1 shadow-card">
             <button onClick={() => { setTab("signin"); setErr(""); }} className={tab === "signin" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Sign in</button>
@@ -101,7 +111,7 @@ export default function AuthPage() {
           <div className="card">
             {agencyBrand && (
               <div className="mb-4 rounded-lg border border-brand/30 bg-brand-light px-3 py-2 text-sm text-brand">
-                Joining <span className="font-semibold">{agencyBrand}</span> on Care Royal
+                Joining <span className="font-semibold">{agencyBrand}</span> on The Care Royal
               </div>
             )}
             <h1 className="font-serif text-2xl text-ink">{tab === "signin" ? "Welcome back" : "Get started"}</h1>
@@ -146,7 +156,7 @@ export default function AuthPage() {
                 <div>
                   <label className="label">Agency code</label>
                   <input className="field uppercase tracking-widest" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="e.g. 7KQ9PX" required />
-                  <p className="hint">Ask your care agency for their 6-character Care Royal code.</p>
+                  <p className="hint">Ask your care agency for their 6-character The Care Royal code.</p>
                 </div>
               )}
 
@@ -168,7 +178,7 @@ export default function AuthPage() {
 
           <p className="mt-6 text-center text-xs text-ink-light">
             {tab === "signin" ? (
-              <>New to Care Royal? <button onClick={() => setTab("signup")} className="font-semibold text-brand">Create an account</button></>
+              <>New to The Care Royal? <button onClick={() => setTab("signup")} className="font-semibold text-brand">Create an account</button></>
             ) : (
               <>Already have an account? <button onClick={() => setTab("signin")} className="font-semibold text-brand">Sign in</button></>
             )}

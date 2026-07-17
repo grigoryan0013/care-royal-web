@@ -1,6 +1,6 @@
-// Payroll tax math for Care Royal paystubs. Ported from the Python paystub
+// Payroll tax math for The Care Royal paystubs. Ported from the Python paystub
 // generator (2025 federal + California brackets, FICA, CA SDI). ESTIMATES for
-// pay-document generation only — Care Royal does not file taxes or move money.
+// pay-document generation only — The Care Royal does not file taxes or move money.
 // Add a new year by adding another TaxTable and selecting it by year.
 
 export interface TaxTable {

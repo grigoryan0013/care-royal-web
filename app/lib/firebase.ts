@@ -5,6 +5,7 @@ import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getFunctions, type Functions } from "firebase/functions";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCQuvAI5TBtkyW_SIK2PKpengsmrtMIFdY",
@@ -25,6 +26,9 @@ export function auth(): Auth {
 }
 export function db(): Firestore {
   return getFirestore(app());
+}
+export function storage(): FirebaseStorage {
+  return getStorage(app());
 }
 // Cloud Functions (payments). Inert until the cloud-functions/ are deployed.
 export function functions(): Functions {

@@ -228,7 +228,7 @@ export function GrowthPanel() {
     <div className="space-y-5">
       {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
       <div className="card space-y-4">
-        <div><h3 className="font-serif text-lg text-ink">White-label branding</h3><p className="mt-1 text-sm text-ink-light">Make Care Royal your own. These apply across your family, caregiver and agency portals.</p></div>
+        <div><h3 className="font-serif text-lg text-ink">White-label branding</h3><p className="mt-1 text-sm text-ink-light">Make The Care Royal your own. These apply across your family, caregiver and agency portals.</p></div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div><label className="label">Display name</label><input className="field field-sm" value={b.displayName || ""} onChange={(e) => setB({ ...b, displayName: e.target.value })} /></div>
           <div><label className="label">Logo URL</label><input className="field field-sm" value={b.logoUrl || ""} onChange={(e) => setB({ ...b, logoUrl: e.target.value })} placeholder="https://…/logo.png" /></div>
@@ -268,7 +268,7 @@ export function BenchmarkPanel() {
   };
   return (
     <div className="space-y-5">
-      <div className="card"><p className="text-sm text-ink-mid">How your agency compares to <b>{d.cohort}</b> — fully anonymized, aggregated across the Care Royal network. No client or caregiver data is ever shared.</p></div>
+      <div className="card"><p className="text-sm text-ink-mid">How your agency compares to <b>{d.cohort}</b> — fully anonymized, aggregated across The Care Royal network. No client or caregiver data is ever shared.</p></div>
       <div className="card space-y-4">
         <Bar label="Shift fill rate" mine={d.mine.fillRate} peer={d.peers.fillRate} suffix="%" />
         <Bar label="Average caregiver wage" mine={d.mine.avgWage} peer={d.peers.avgWage} suffix="/hr" />
@@ -285,7 +285,7 @@ export function PayoutsPanel() {
   return (
     <div className="card">
       <div className="mb-2 flex items-center justify-between"><h3 className="font-serif text-lg text-ink">Instant pay</h3><span className="text-xs text-ink-light">Fees earned: <b className="text-ink">${d.totalFees.toFixed(2)}</b></span></div>
-      <p className="mb-3 text-sm text-ink-light">Caregivers can cash out earned wages instantly from their portal. You earn a per-transfer fee; Care Royal never holds the funds.</p>
+      <p className="mb-3 text-sm text-ink-light">Caregivers can cash out earned wages instantly from their portal. You earn a per-transfer fee; The Care Royal never holds the funds.</p>
       {d.payouts.length === 0 ? <p className="text-sm text-ink-light">No cash-outs yet.</p> : <div className="space-y-2">{d.payouts.slice(0, 10).map((p) => <div key={p.payoutId} className="flex items-center justify-between border-b border-rule pb-2 text-sm last:border-0"><span className="text-ink">{p.name} <span className="text-ink-light">· {new Date(p.createdAt).toLocaleDateString()}</span></span><span className="font-medium text-ink">${p.net} <span className="text-ink-light">(fee ${p.fee})</span></span></div>)}</div>}
     </div>
   );

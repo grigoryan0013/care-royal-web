@@ -24,7 +24,7 @@ export default function DemoHub() {
     <main className="mx-auto max-w-4xl px-6 py-12">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="font-serif text-3xl text-brand">Care Royal — demo</h1>
+          <h1 className="font-serif text-3xl text-brand">The Care Royal — demo</h1>
           <p className="mt-1 text-sm text-ink-light">Sample data loaded. Explore every portal, then switch anytime from the bar at the top.</p>
         </div>
         <button onClick={() => { disableDemo(); router.replace("/"); }} className="text-xs font-semibold text-ink-light hover:text-danger">Exit demo</button>
@@ -35,7 +35,7 @@ export default function DemoHub() {
           <h2 className="font-serif text-xl text-ink">Platform owner</h2>
           <span className="text-sm font-semibold text-brand">Open console →</span>
         </div>
-        <p className="mt-2 text-sm text-ink-mid">You. Provision organizations (each agency that rents Care Royal), issue their admin login, and open any workspace.</p>
+        <p className="mt-2 text-sm text-ink-mid">You. Provision organizations (each agency that rents The Care Royal), issue their admin login, and open any workspace.</p>
       </Link>
 
       <div className="grid gap-5">

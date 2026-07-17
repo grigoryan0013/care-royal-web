@@ -10,6 +10,8 @@ import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
 import { AiPanel, BillingPanel, GrowthPanel, BenchmarkPanel, PayoutsPanel, BackgroundCheck } from "../../components/AdvancedPanels";
 import { apiGet, apiPost, signOutAndRedirect, verifySession, MANAGER_PERMISSION_KEYS, type SessionUser } from "../lib/session";
+import { storage } from "../lib/firebase";
+import { ref as sref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const nav: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -118,7 +120,7 @@ export default function AgencyPortal() {
     ...unassigned.map((s) => ({ text: `Unassigned shift: ${s.serviceName}`, sub: s.start ? fmtDate(s.start) : "", tone: "brand" as const })),
   ].slice(0, 12);
 
-  // Waitlist gate: a new agency stays "pending" until the Care Royal platform
+  // Waitlist gate: a new agency stays "pending" until The Care Royal platform
   // owner approves it (or "suspended" if paused). Block the portal until then.
   if (loaded && tenant && tenant.status && tenant.status !== "active" && tenant.status !== "trial") {
     const suspended = tenant.status === "suspended";
@@ -133,8 +135,8 @@ export default function AgencyPortal() {
           </h1>
           <p className="mt-3 text-sm text-ink-light">
             {suspended
-              ? `${tenant.name || "Your agency"} is currently paused. Please contact Care Royal to reactivate your account.`
-              : `Thanks for signing up, ${tenant.name || "there"}. Your agency is being reviewed by the Care Royal team — we'll email you at your signup address as soon as it's approved, usually within one business day.`}
+              ? `${tenant.name || "Your agency"} is currently paused. Please contact The Care Royal to reactivate your account.`
+              : `Thanks for signing up, ${tenant.name || "there"}. Your agency is being reviewed by The Care Royal team — we'll email you at your signup address as soon as it's approved, usually within one business day.`}
           </p>
           <p className="mt-4 text-xs text-ink-light">
             Need help? <a className="text-brand" href="mailto:info@thecareroyal.com">info@thecareroyal.com</a>
@@ -866,7 +868,7 @@ function Services({ services, onChange }: { services: Service[]; onChange: () =>
   if (services.length === 0) {
     return (
       <div className="card text-center">
-        <p className="mb-4 text-sm text-ink-mid">No services yet. Load the full Care Royal catalog (63 services across 10 categories) and edit rates from there.</p>
+        <p className="mb-4 text-sm text-ink-mid">No services yet. Load the full The Care Royal catalog (63 services across 10 categories) and edit rates from there.</p>
         <button onClick={seed} disabled={busy} className="btn-primary">{busy ? "Loading…" : "Load default catalog"}</button>
       </div>
     );
@@ -939,7 +941,7 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
 
   async function connectPayroll(provider: string) {
     setBusy("payroll");
-    try { const d = await apiPost("/api/payroll", { action: "connect_payroll", provider }); if (d.url) window.location.href = d.url; else { setNote(provider === "gusto" ? "Payroll connected via Gusto." : "Care Royal Payroll enabled."); load(); } }
+    try { const d = await apiPost("/api/payroll", { action: "connect_payroll", provider }); if (d.url) window.location.href = d.url; else { setNote(provider === "gusto" ? "Payroll connected via Gusto." : "The Care Royal Payroll enabled."); load(); } }
     catch (e) { setNote(e instanceof Error ? e.message : "Failed"); } finally { setBusy(""); }
   }
 
@@ -968,8 +970,8 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
 
       <div className="card flex items-center justify-between">
         <div>
-          <h3 className="font-serif text-lg text-ink">Your Care Royal plan</h3>
-          <p className="mt-1 text-sm text-ink-light">Billing for your Care Royal subscription is handled by Care Royal. You keep 100% of client payments minus card fees.</p>
+          <h3 className="font-serif text-lg text-ink">Your The Care Royal plan</h3>
+          <p className="mt-1 text-sm text-ink-light">Billing for your Care Royal subscription is handled by The Care Royal. You keep 100% of client payments minus card fees.</p>
         </div>
         <span className="badge-brand capitalize">{plan || "trial"}</span>
       </div>
@@ -1019,12 +1021,12 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
         </div>
         {!pay.backboneReady ? (
           <div className="mb-4 space-y-3">
-            <p className="text-sm text-ink-mid">Choose how you run payroll. Either way Care Royal never holds your funds — gross pay below comes from your timesheets.</p>
+            <p className="text-sm text-ink-mid">Choose how you run payroll. Either way The Care Royal never holds your funds — gross pay below comes from your timesheets.</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-rule bg-paper p-4">
-                <div className="font-medium text-ink">Care Royal Payroll</div>
+                <div className="font-medium text-ink">The Care Royal Payroll</div>
                 <p className="mt-1 text-xs text-ink-light">Generate branded paystubs, verification letters, invoices & receipts in-app — with real tax math. No external account.</p>
-                <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-primary btn-sm mt-3">Use Care Royal Payroll</button>
+                <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-primary btn-sm mt-3">Use The Care Royal Payroll</button>
               </div>
               <div className="rounded-lg border border-rule bg-paper p-4">
                 <div className="font-medium text-ink">Connect Gusto</div>
@@ -1037,7 +1039,7 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
           <p className="mb-3 text-sm text-ok">Payroll connected via Gusto. Gross pay below syncs to your account.</p>
         ) : (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-ok/10 px-3 py-2">
-            <span className="text-sm text-ok">Care Royal Payroll is on. Create paystubs & pay documents in the Document Studio.</span>
+            <span className="text-sm text-ok">The Care Royal Payroll is on. Create paystubs & pay documents in the Document Studio.</span>
             <button onClick={() => onGo("documents")} className="btn-soft btn-sm">Open Document Studio</button>
           </div>
         )}
@@ -1063,7 +1065,7 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
 }
 
 // ---------------------------------------------------------------- documents
-interface Doc { docId: string; template: string; templateLabel: string; title: string; content: string; status: string; signedBy: string; signedAt: string; signature?: string; householdName: string; recipientName: string; createdAt: string }
+interface Doc { docId: string; template: string; templateLabel: string; title: string; content: string; status: string; signedBy: string; signedAt: string; signature?: string; householdName: string; recipientName: string; createdAt: string; fileUrl?: string; fileName?: string }
 
 const DOC_TEMPLATES = [
   { key: "service_agreement", label: "Service Agreement" },
@@ -1071,6 +1073,66 @@ const DOC_TEMPLATES = [
   { key: "consent", label: "Consent to Care" },
   { key: "hipaa", label: "HIPAA Acknowledgment" },
 ];
+
+// Bulk-upload existing files (PDFs/scans/images) to Firebase Storage and attach
+// each as a document record on a client household or staff member.
+function DocUpload({ clients, caregivers, onChange }: { clients: Client[]; caregivers: Caregiver[]; onChange: () => void }) {
+  const [subject, setSubject] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [drag, setDrag] = useState(false);
+  async function handle(files: FileList | null) {
+    if (!files || !files.length) return;
+    if (!subject) { setStatus("Choose a client or staff member first."); return; }
+    const u = await verifySession();
+    const tid = u?.tenantId;
+    if (!tid) { setStatus("Please sign in again."); return; }
+    const [kind, sid] = subject.split(":");
+    setBusy(true);
+    let done = 0;
+    try {
+      for (const file of Array.from(files)) {
+        setStatus(`Uploading ${file.name}… (${done}/${files.length})`);
+        const safe = file.name.replace(/[^\w.\-]+/g, "_");
+        const r = sref(storage(), `documents/${tid}/${sid}/${Date.now()}_${safe}`);
+        await uploadBytes(r, file);
+        const url = await getDownloadURL(r);
+        await apiPost("/api/documents", { action: "attach", subjectType: kind === "cg" ? "caregiver" : "household", subjectId: sid, title: file.name, fileName: file.name, fileType: file.type, fileUrl: url });
+        done++;
+      }
+      setStatus(`Uploaded ${done} file${done === 1 ? "" : "s"}.`);
+      onChange();
+    } catch (e) { setStatus("Upload failed: " + ((e as Error).message || "error")); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="card">
+      <h3 className="font-serif text-lg text-ink">Upload documents</h3>
+      <p className="mt-1 text-sm text-ink-light">Attach existing files (PDFs, scans, images) to a client or staff member. Drag a whole batch in at once.</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+        <div>
+          <label className="label">Attach to</label>
+          <select className="field" value={subject} onChange={(e) => setSubject(e.target.value)}>
+            <option value="">Select a client or staff member…</option>
+            {clients.length > 0 && <optgroup label="Clients">{clients.map((c) => <option key={c.householdId} value={`hh:${c.householdId}`}>{c.name || "Client"}</option>)}</optgroup>}
+            {caregivers.length > 0 && <optgroup label="Staff">{caregivers.map((c) => <option key={c.userId} value={`cg:${c.userId}`}>{c.name || c.email}</option>)}</optgroup>}
+          </select>
+        </div>
+        <label className={`btn-primary cursor-pointer text-center ${busy ? "pointer-events-none opacity-60" : ""}`}>
+          {busy ? "Uploading…" : "Choose files"}
+          <input type="file" multiple className="hidden" disabled={busy} onChange={(e) => handle(e.target.files)} />
+        </label>
+      </div>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); void handle(e.dataTransfer.files); }}
+        className={`mt-3 rounded-lg border-2 border-dashed p-6 text-center text-sm transition ${drag ? "border-brand bg-brand-light text-brand" : "border-rule-dark text-ink-light"}`}
+      >Drag &amp; drop files here</div>
+      {status && <p className="mt-2 text-sm text-brand">{status}</p>}
+    </div>
+  );
+}
 
 function AgencyDocs({ clients, tenant, caregivers, onChange }: { clients: Client[]; tenant: Tenant | null; caregivers: Caregiver[]; onChange: () => void }) {
   const [view, setView] = useState<"requests" | "create">("requests");
@@ -1103,6 +1165,7 @@ function AgencyDocs({ clients, tenant, caregivers, onChange }: { clients: Client
         <DocStudio tenantId={tenant?.joinCode ? tenant.joinCode : "demo"} tenantName={tenant?.name} caregivers={caregivers.map((c) => ({ userId: c.userId, name: c.name, email: c.email }))} />
       ) : (
       <div className="space-y-6">
+      <DocUpload clients={clients} caregivers={caregivers} onChange={() => { load(); onChange(); }} />
       <div className="card space-y-4">
         <h3 className="font-serif text-lg text-ink">Send a document for signature</h3>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -1126,12 +1189,14 @@ function AgencyDocs({ clients, tenant, caregivers, onChange }: { clients: Client
         {docs.map((d) => (
           <div key={d.docId} className="card flex items-center justify-between">
             <div>
-              <div className="font-medium text-ink">{d.title}<span className="text-ink-light"> — {d.householdName}</span></div>
-              <div className="text-xs text-ink-light">{d.status === "signed" ? `Signed by ${d.signedBy} on ${d.signedAt ? new Date(d.signedAt).toLocaleDateString() : ""}` : "Awaiting signature"}</div>
+              <div className="font-medium text-ink">{d.title}{d.householdName ? <span className="text-ink-light"> — {d.householdName}</span> : null}</div>
+              <div className="text-xs text-ink-light">{d.fileUrl ? `Uploaded file${d.fileName ? " · " + d.fileName : ""}` : d.status === "signed" ? `Signed by ${d.signedBy} on ${d.signedAt ? new Date(d.signedAt).toLocaleDateString() : ""}` : "Awaiting signature"}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => printDoc(d)} className="btn-ghost btn-sm">Download</button>
-              <span className={d.status === "signed" ? "badge-ok" : "badge-warn"}>{d.status === "signed" ? "Signed" : "Pending"}</span>
+              {d.fileUrl
+                ? <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="btn-ghost btn-sm">Open</a>
+                : <button onClick={() => printDoc(d)} className="btn-ghost btn-sm">Download</button>}
+              <span className={d.fileUrl ? "badge-brand" : d.status === "signed" ? "badge-ok" : "badge-warn"}>{d.fileUrl ? "File" : d.status === "signed" ? "Signed" : "Pending"}</span>
             </div>
           </div>
         ))}

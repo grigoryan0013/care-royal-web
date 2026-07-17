@@ -10,7 +10,7 @@ import { auth, db } from "../lib/firebase";
 // Not linked publicly. Run once, then sign in normally.
 export default function Setup() {
   const router = useRouter();
-  const [agency, setAgency] = useState("Care Royal");
+  const [agency, setAgency] = useState("The Care Royal");
   const [name, setName] = useState("Owner");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,7 +45,7 @@ export default function Setup() {
   return (
     <main className="flex min-h-screen items-center justify-center px-6 py-12">
       <div className="w-full max-w-md">
-        <Link href="/" className="mb-8 block text-center font-serif text-2xl font-semibold text-brand">Care Royal</Link>
+        <Link href="/" className="mb-8 block text-center font-serif text-2xl font-semibold text-brand">The Care Royal</Link>
         <div className="card">
           <h1 className="mb-1 font-serif text-2xl text-ink">Provision an agency</h1>
           <p className="mb-6 text-sm text-ink-light">Owner only. Create an agency workspace and issue its admin login.</p>

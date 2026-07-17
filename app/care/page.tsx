@@ -46,7 +46,7 @@ export default function CarePage() {
     <main className="app-bg min-h-screen">
       <section className="hero-gradient text-white">
         <div className="mx-auto max-w-4xl px-6 py-14">
-          <Link href="/" className="text-sm text-white/70">Care Royal</Link>
+          <Link href="/" className="text-sm text-white/70">The Care Royal</Link>
           <h1 className="mt-3 font-serif text-4xl md:text-5xl">{agency.name}</h1>
           <div className="mt-3 flex items-center gap-3">
             <Stars n={avg} size={20} />

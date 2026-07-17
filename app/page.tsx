@@ -12,7 +12,7 @@ export default function Home() {
     <main className="min-h-screen">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <div className="font-serif text-2xl font-semibold tracking-tight text-brand">
-          Care Royal
+          The Care Royal
         </div>
         <nav className="flex items-center gap-3">
           <Link href="/login/" className="btn-ghost">Sign in</Link>
@@ -52,7 +52,7 @@ export default function Home() {
 
       <footer className="border-t border-rule">
         <div className="mx-auto max-w-6xl px-6 py-8 text-sm text-ink-light">
-          Care Royal — a nationwide care management platform.
+          The Care Royal — a nationwide care management platform.
         </div>
       </footer>
     </main>

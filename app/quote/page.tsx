@@ -47,7 +47,7 @@ export default function QuotePage() {
   return (
     <main className="app-bg min-h-screen">
       <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-5">
-        <Link href="/" className="font-serif text-2xl font-semibold text-brand">Care Royal</Link>
+        <Link href="/" className="font-serif text-2xl font-semibold text-brand">The Care Royal</Link>
         <Link href="/login/" className="btn-ghost btn-sm">Agency sign in</Link>
       </header>
       <div className="mx-auto max-w-3xl px-6 pb-16">

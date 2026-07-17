@@ -1,4 +1,4 @@
-// Default Care Royal service catalog (client copy).
+// Default The Care Royal service catalog (client copy).
 // rates and toggles services on/off. profileType: person|pet|home.
 // pricingModel: hourly|visit|night|day|session|walk|trip|week|flat.
 // credential: none|caregiver|lvn_rn|therapist.

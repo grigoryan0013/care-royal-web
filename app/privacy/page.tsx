@@ -1,17 +1,17 @@
 import Link from "next/link";
 
-export const metadata = { title: "Privacy Notice — Care Royal" };
+export const metadata = { title: "Privacy Notice — The Care Royal" };
 
 export default function Privacy() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
-      <Link href="/" className="font-serif text-2xl font-semibold text-brand">Care Royal</Link>
+      <Link href="/" className="font-serif text-2xl font-semibold text-brand">The Care Royal</Link>
       <h1 className="mt-8 font-serif text-4xl text-ink">Privacy Notice</h1>
       <p className="mt-2 text-sm text-ink-light">Last updated {new Date().getFullYear()}</p>
 
       <div className="mt-8 space-y-6 text-sm leading-relaxed text-ink-mid">
         <p>
-          This Privacy Notice explains how Care Royal ("we," "us") collects and uses information when you
+          This Privacy Notice explains how The Care Royal ("we," "us") collects and uses information when you
           join our waitlist, submit a questionnaire, or use our platform. By providing your information,
           you agree to the practices described here.
         </p>
@@ -32,7 +32,7 @@ export default function Privacy() {
 
         <section>
           <h2 className="mb-2 font-serif text-xl text-ink">Communications consent</h2>
-          <p>If you opt in, we may contact you by email, phone, or text message about Care Royal. Message
+          <p>If you opt in, we may contact you by email, phone, or text message about The Care Royal. Message
           and data rates may apply. You can opt out of marketing messages at any time by replying STOP to
           a text, using the unsubscribe link in an email, or contacting us.</p>
         </section>
@@ -60,7 +60,7 @@ export default function Privacy() {
 
         <section>
           <h2 className="mb-2 font-serif text-xl text-ink">Not medical advice</h2>
-          <p>Care Royal is a technology platform and is not a healthcare provider. Content on our platform
+          <p>The Care Royal is a technology platform and is not a healthcare provider. Content on our platform
           is not medical advice and is not a substitute for professional care.</p>
         </section>
 

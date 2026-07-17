@@ -98,7 +98,7 @@ function Home({ recipients, bookings, shifts, onGo }: { recipients: Recipient[];
     <div className="space-y-5">
       <div className="card">
         <p className="text-sm text-ink-mid">
-          Welcome to Care Royal. Add the people and pets you care for, then request
+          Welcome to The Care Royal. Add the people and pets you care for, then request
           services. Your agency reviews and approves every booking.
         </p>
       </div>

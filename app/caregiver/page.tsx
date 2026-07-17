@@ -225,7 +225,7 @@ function Availability({ onSaved }: { onSaved: () => void }) {
       <div className="card space-y-2">
         <label className="label">Phone clock-in PIN</label>
         <input className="field" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Choose a 4-6 digit PIN" />
-        <p className="hint">No smartphone on a visit? Call your agency&apos;s Care Royal phone line, enter this PIN, then the shift code shown on each shift to clock in and out.</p>
+        <p className="hint">No smartphone on a visit? Call your agency&apos;s The Care Royal phone line, enter this PIN, then the shift code shown on each shift to clock in and out.</p>
       </div>
     </div>
   );
@@ -259,7 +259,7 @@ function MyPay() {
           ))}
         </div>
       </div>
-      <p className="text-xs text-ink-light">Payouts are issued by your agency through Care Royal payroll.</p>
+      <p className="text-xs text-ink-light">Payouts are issued by your agency through The Care Royal payroll.</p>
     </div>
   );
 }

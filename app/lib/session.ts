@@ -11,7 +11,7 @@ import { DEFAULT_SERVICES } from "./catalog";
 import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disableDemo } from "./demo";
 
 export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
-// Care Royal platform super-admins (recognized by login email — no tenant).
+// The Care Royal platform super-admins (recognized by login email — no tenant).
 export const SUPERADMIN_EMAILS = ["info@thecareroyal.com"];
 export type SignupRole = "agency" | "family" | "caregiver" | "manager";
 
@@ -96,7 +96,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   // Platform super-admin: no tenant, no users doc — recognized by email everywhere.
   // (If the account already exists, they just sign in instead.)
   if (SUPERADMIN_EMAILS.includes(email.toLowerCase())) {
-    return { userId: uid, tenantId: "", email, role: "platform_owner", name: name || "Care Royal" };
+    return { userId: uid, tenantId: "", email, role: "platform_owner", name: name || "The Care Royal" };
   }
 
   if (input.role === "agency") {
@@ -105,7 +105,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     const code = genCode();
     const agencyName = (input.agencyName || name || "My Agency").trim();
     const batch = writeBatch(D);
-    // New agencies are WAITLISTED: status "pending" until the Care Royal platform
+    // New agencies are WAITLISTED: status "pending" until The Care Royal platform
     // owner approves them. The agency portal shows a review screen until then.
     batch.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "pending", joinCode: code, ownerUid: uid, ownerEmail: email, ownerName: name, createdAt: now() });
     // notifyEmail lets the public quote/apply forms route the agency's

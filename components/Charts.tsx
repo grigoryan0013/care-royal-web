@@ -1,5 +1,5 @@
 "use client";
-// Dependency-free SVG charts tuned to the Care Royal palette.
+// Dependency-free SVG charts tuned to The Care Royal palette.
 const TONE: Record<string, string> = {
   brand: "#4B39EF", purple: "#673AB7", gold: "#39D2C0", ok: "#1f9d55",
   danger: "#d64545", muted: "#cdd3da",

@@ -23,7 +23,7 @@ export function mrr(orgs: Org[]): number {
 function seed(): Org[] {
   const d = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
   return [
-    { id: "t_demo", name: "Care Royal", adminEmail: "grigoryan", plan: "Pro", status: "active", createdAt: d(120) },
+    { id: "t_demo", name: "The Care Royal", adminEmail: "grigoryan", plan: "Pro", status: "active", createdAt: d(120) },
     { id: "t_sun", name: "Sunrise Home Care", adminEmail: "admin@sunrisehc.com", plan: "Enterprise", status: "active", createdAt: d(86) },
     { id: "t_gld", name: "Golden Years Caregivers", adminEmail: "ops@goldenyears.com", plan: "Pro", status: "active", createdAt: d(54) },
     { id: "t_com", name: "Comfort Keepers LA", adminEmail: "hello@comfortla.com", plan: "Starter", status: "active", createdAt: d(31) },

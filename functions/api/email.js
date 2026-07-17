@@ -1,4 +1,4 @@
-// Care Royal transactional email — Cloudflare Pages Function.
+// The Care Royal transactional email — Cloudflare Pages Function.
 //
 // SAME METHOD AS TEGULA: sends branded HTML through the Gmail API using a
 // domain-wide-delegated service account that impersonates info@thecareroyal.com
@@ -121,8 +121,8 @@ async function sendMail(token, { from, to, subject, html }) {
 const NAVY = "#0d1b3e", GOLD = "#c6a15b", INK = "#1f2937", MUTED = "#6b7280";
 
 function baseEmail(agency, bodyHtml, preheader) {
-  const name = esc(agency || "Care Royal");
-  const isAgency = name && name !== "Care Royal";
+  const name = esc(agency || "The Care Royal");
+  const isAgency = name && name !== "The Care Royal";
   const pre = preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;height:0;width:0">${esc(preheader)}</div>`
     : "";
@@ -133,7 +133,7 @@ ${pre}
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e4e8f0;box-shadow:0 1px 3px rgba(13,27,62,.06)">
       <!-- header -->
       <tr><td style="background:${NAVY};padding:30px 34px 26px">
-        <div style="font-family:Georgia,'Times New Roman',serif;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:.08em">CARE ROYAL</div>
+        <div style="font-family:Georgia,'Times New Roman',serif;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:.08em">THE CARE ROYAL</div>
         <div style="height:2px;width:46px;background:${GOLD};margin:12px 0 10px"></div>
         <div style="color:#aab6d4;font-size:11px;letter-spacing:.18em;text-transform:uppercase">${isAgency ? esc(name) + " &middot; " : ""}Trusted care, staffing &amp; concierge</div>
       </td></tr>
@@ -159,7 +159,7 @@ const btn = (href, label) =>
     <a href="${href}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,Segoe UI,Arial,sans-serif;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px">${label}</a>
   </td></tr></table>`;
 const fromFor = (agency) =>
-  `"${String(agency || "Care Royal").replace(/"/g, "")} via Care Royal" <info@thecareroyal.com>`;
+  `"${String(agency || "The Care Royal").replace(/"/g, "")} via The Care Royal" <info@thecareroyal.com>`;
 const H = (t) =>
   `<h1 style="margin:0 0 14px;font-family:Georgia,'Times New Roman',serif;color:${NAVY};font-size:23px;font-weight:700;line-height:1.25">${t}</h1>`;
 const P = (t) => `<p style="margin:0 0 14px;color:${INK};font-size:16px;line-height:1.6">${t}</p>`;
@@ -187,11 +187,11 @@ function composeMessages(body) {
       });
     if (body.agencyEmail)
       msgs.push({
-        from: fromFor("Care Royal"),
+        from: fromFor("The Care Royal"),
         to: body.agencyEmail,
         subject: `New quote request from ${q.name || "a client"}`,
         html: baseEmail(
-          "Care Royal",
+          "The Care Royal",
           H("New quote request") +
             P(
               `<b>${esc(q.name)}</b> &middot; ${esc(q.phone)} &middot; ${esc(q.email)}<br>${esc(q.services)}${q.frequency ? " &middot; " + esc(q.frequency) : ""}<br>${esc(q.details)}`
@@ -218,11 +218,11 @@ function composeMessages(body) {
       });
     if (body.agencyEmail)
       msgs.push({
-        from: fromFor("Care Royal"),
+        from: fromFor("The Care Royal"),
         to: body.agencyEmail,
         subject: `New caregiver application: ${a.name || ""}`,
         html: baseEmail(
-          "Care Royal",
+          "The Care Royal",
           H("New caregiver application") +
             P(
               `<b>${esc(a.name)}</b> &middot; ${esc(a.phone)} &middot; ${esc(a.email)}<br>${esc(a.credentials)} &middot; ${esc(a.experience)}`
@@ -268,16 +268,16 @@ function composeMessages(body) {
     if (!body.to) return msgs;
     const ag = esc(body.agencyName) || "your agency";
     msgs.push({
-      from: fromFor("Care Royal"),
+      from: fromFor("The Care Royal"),
       to: body.to,
-      subject: "You're approved — welcome to Care Royal",
+      subject: "You're approved — welcome to The Care Royal",
       html: baseEmail(
-        "Care Royal",
+        "The Care Royal",
         H("You're approved") +
-          P(`Great news — <b>${ag}</b> has been approved on Care Royal. Your agency portal is now live and ready to set up.`) +
+          P(`Great news — <b>${ag}</b> has been approved on The Care Royal. Your agency portal is now live and ready to set up.`) +
           btn(APP_URL + "/login/", "Sign in to your portal") +
           P(`<span style="color:${MUTED};font-size:13px">Questions? Reach us at info@thecareroyal.com.</span>`),
-        "Your Care Royal agency account is approved."
+        "Your The Care Royal agency account is approved."
       ),
     });
     return msgs;
@@ -286,17 +286,17 @@ function composeMessages(body) {
   if (type === "test") {
     if (body.to)
       msgs.push({
-        from: fromFor("Care Royal"),
+        from: fromFor("The Care Royal"),
         to: body.to,
-        subject: "Your Care Royal email is live",
+        subject: "Your The Care Royal email is live",
         html: baseEmail(
-          "Care Royal",
+          "The Care Royal",
           H("Email is up and running") +
             P("This is a test from thecareroyal.com. If you're reading it, transactional email is fully configured — sending securely as <b>info@thecareroyal.com</b> through the Gmail API.") +
             P("Welcome emails, quote acknowledgements, application confirmations, and booking notices will now go out automatically to your families and caregivers.") +
-            btn("https://thecareroyal.com/app/", "Open Care Royal") +
+            btn("https://thecareroyal.com/app/", "Open The Care Royal") +
             P(`<span style="color:${MUTED};font-size:13px">You can safely ignore this message.</span>`),
-          "Care Royal email is configured and sending correctly."
+          "The Care Royal email is configured and sending correctly."
         ),
       });
     return msgs;
@@ -305,7 +305,7 @@ function composeMessages(body) {
   if (type === "custom") {
     if (body.to && body.html)
       msgs.push({
-        from: body.from || fromFor(body.agencyName || "Care Royal"),
+        from: body.from || fromFor(body.agencyName || "The Care Royal"),
         to: body.to,
         subject: body.subject || "",
         html: body.html,

@@ -89,7 +89,7 @@ export function resetDemo() {
   ];
 
   const db: Db = {
-    Tenant: { tenantId: IDS.tenant, name: "Care Royal", slug: "care-royal", plan: "standard", status: "active", stripeAccountId: "", createdAt: now() },
+    Tenant: { tenantId: IDS.tenant, name: "The Care Royal", slug: "care-royal", plan: "standard", status: "active", stripeAccountId: "", createdAt: now() },
     Users: [
       { userId: IDS.admin, tenantId: IDS.tenant, email: "grigoryan", role: "agency_admin", name: "Owner", phone: "", status: "active", createdAt: now() },
       { userId: IDS.family, tenantId: IDS.tenant, email: "family@demo", role: "family", name: "Jordan Miller", phone: "310-555-0142", status: "active", createdAt: now() },
@@ -119,7 +119,7 @@ export function resetDemo() {
     ],
     Documents: [
       { docId: "doc1", tenantId: IDS.tenant, subjectType: "household", subjectId: "hh1", template: "care_plan", driveFileId: "", status: "unsigned", signedBy: "", signedAt: "", title: "Care Plan", content: carePlanText(), signature: "", householdId: "hh1", createdAt: now() },
-      { docId: "doc2", tenantId: IDS.tenant, subjectType: "caregiver", subjectId: IDS.cg, template: "hipaa", driveFileId: "", status: "unsigned", signedBy: "", signedAt: "", title: "HIPAA Acknowledgment", content: "HIPAA ACKNOWLEDGMENT\n\nI acknowledge Care Royal may use health information as necessary to coordinate and deliver care.", signature: "", householdId: "", createdAt: now() },
+      { docId: "doc2", tenantId: IDS.tenant, subjectType: "caregiver", subjectId: IDS.cg, template: "hipaa", driveFileId: "", status: "unsigned", signedBy: "", signedAt: "", title: "HIPAA Acknowledgment", content: "HIPAA ACKNOWLEDGMENT\n\nI acknowledge The Care Royal may use health information as necessary to coordinate and deliver care.", signature: "", householdId: "", createdAt: now() },
     ],
     Leads: seedLeads(),
     QuoteRequests: [
@@ -210,7 +210,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   }
 
   // ---- tenant
-  if (p === "/api/tenant" && method === "GET") return { tenant: { tenantId: IDS.tenant, name: db.Tenant.name || "Care Royal", plan: db.Tenant.plan || "demo", joinCode: "DEMO24", status: "active" } };
+  if (p === "/api/tenant" && method === "GET") return { tenant: { tenantId: IDS.tenant, name: db.Tenant.name || "The Care Royal", plan: db.Tenant.plan || "demo", joinCode: "DEMO24", status: "active" } };
 
   // ---- services
   if (p === "/api/services" && method === "GET") return { services: db.Services };
@@ -287,9 +287,9 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   if (p === "/api/applications" && method === "GET") return { applications: db.CaregiverApplications.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) };
   if (p === "/api/applications" && method === "POST") { const a = db.CaregiverApplications.find((x) => x.appId === body.appId); if (a) a.status = body.action === "accept" ? "accepted" : "declined"; write(db); return ok(); }
   if (p === "/api/events" && method === "GET") return { events: db.Events.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)).slice(0, 60) };
-  if (p === "/api/apply" && method === "POST") { db.CaregiverApplications.push({ appId: id("app"), tenantId: IDS.tenant, name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), city: String(body.city || ""), zip: String(body.zip || ""), credentials: String(body.credentials || ""), experience: String(body.experience || ""), availability: Array.isArray(body.availability) ? (body.availability as string[]).join(", ") : String(body.availability || ""), services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : String(body.services || ""), details: String(body.details || ""), status: "new", createdAt: now() }); write(db); return { ok: true, agency: db.Tenant.name || "Care Royal" }; }
+  if (p === "/api/apply" && method === "POST") { db.CaregiverApplications.push({ appId: id("app"), tenantId: IDS.tenant, name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), city: String(body.city || ""), zip: String(body.zip || ""), credentials: String(body.credentials || ""), experience: String(body.experience || ""), availability: Array.isArray(body.availability) ? (body.availability as string[]).join(", ") : String(body.availability || ""), services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : String(body.services || ""), details: String(body.details || ""), status: "new", createdAt: now() }); write(db); return { ok: true, agency: db.Tenant.name || "The Care Royal" }; }
   if (p === "/api/review" && method === "POST") { db.Reviews.push({ reviewId: id("rv"), tenantId: IDS.tenant, rating: String(Math.max(1, Math.min(5, parseInt(String(body.rating)) || 5))), name: String(body.name || "Anonymous"), text: String(body.text || ""), createdAt: now() }); write(db); return { ok: true }; }
-  if (p === "/api/agency-public" && method === "GET") { const reviews = db.Reviews.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)); const avg = reviews.length ? reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0) / reviews.length : 0; return { agency: { name: db.Tenant.name || "Care Royal", code: "DEMO24" }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length }; }
+  if (p === "/api/agency-public" && method === "GET") { const reviews = db.Reviews.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)); const avg = reviews.length ? reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0) / reviews.length : 0; return { agency: { name: db.Tenant.name || "The Care Royal", code: "DEMO24" }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length }; }
 
   // ---- caregiver availability
   if (p === "/api/availability") {
@@ -408,7 +408,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   // ---- quote requests
   if (p === "/api/quote" && method === "POST") {
     db.QuoteRequests.push({ quoteId: id("qr"), tenantId: IDS.tenant, name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), city: String(body.city || ""), zip: String(body.zip || ""), careFor: String(body.careFor || ""), recipientName: String(body.recipientName || ""), services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : String(body.services || ""), frequency: String(body.frequency || ""), startDate: String(body.startDate || ""), schedule: String(body.schedule || ""), budget: String(body.budget || ""), details: String(body.details || ""), bestTime: String(body.bestTime || ""), status: "new", source: "quote", createdAt: now() });
-    write(db); return { ok: true, agency: db.Tenant.name || "Care Royal" };
+    write(db); return { ok: true, agency: db.Tenant.name || "The Care Royal" };
   }
   if (p === "/api/quote-requests" && method === "GET") return { requests: db.QuoteRequests.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)) };
   if (p === "/api/quote-requests" && method === "POST") {
@@ -487,7 +487,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     for (const [k, f] of [["logoUrl", "logoUrl"], ["brandColor", "brandColor"], ["accentColor", "accentColor"], ["displayName", "brandName"], ["customDomain", "customDomain"]] as [string, string][]) if (k in body) db.Tenant[f] = String((body as Row)[k]);
     write(db); return ok();
   }
-  if (p === "/api/org" && method === "GET") return { org: { orgId: "org_demo", name: db.Tenant.name || "Care Royal" }, locations: [{ tenantId: IDS.tenant, name: db.Tenant.name || "Care Royal", plan: db.Tenant.plan || "demo", status: "active", city: "Los Angeles" }] };
+  if (p === "/api/org" && method === "GET") return { org: { orgId: "org_demo", name: db.Tenant.name || "The Care Royal" }, locations: [{ tenantId: IDS.tenant, name: db.Tenant.name || "The Care Royal", plan: db.Tenant.plan || "demo", status: "active", city: "Los Angeles" }] };
   if (p === "/api/org" && method === "POST") return { ok: true, demo: true };
 
   // Item 7: background checks
@@ -522,7 +522,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   if (p === "/api/audit-pack" && method === "GET") {
     const evv = (await demoHandle("GET", "/api/evv")).rows || [];
     const documents = (db.Documents || []).filter((d) => d.status === "signed");
-    return { agency: db.Tenant.name || "Care Royal", generatedAt: now(), evv, documents, events: db.Events.slice(0, 60), claims: arr("Claims") };
+    return { agency: db.Tenant.name || "The Care Royal", generatedAt: now(), evv, documents, events: db.Events.slice(0, 60), claims: arr("Claims") };
   }
 
   return { error: `demo: unhandled ${method} ${p}` };

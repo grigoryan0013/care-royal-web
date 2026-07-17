@@ -11,7 +11,7 @@ import { generate } from "./templates";
 
 type Row = Record<string, any>;
 
-// Care Royal platform super-admins (recognized by login email — no tenant).
+// The Care Royal platform super-admins (recognized by login email — no tenant).
 const SUPERADMINS = ["info@thecareroyal.com"];
 
 let _profile: { uid: string; tenantId: string; role: string; name: string; email: string; status?: string; permissions?: Record<string, boolean> } | null = null;
@@ -27,10 +27,10 @@ async function me() {
     // the portals load its data (read-only, allowed by the isSuper() rule).
     try {
       const v = typeof window !== "undefined" ? localStorage.getItem("cr_acting") : null;
-      if (v) { const a = JSON.parse(v); if (a && a.tenantId) { _profile = { uid: u.uid, tenantId: a.tenantId, role: a.role || "agency_admin", name: "Care Royal (viewing)", email }; return _profile; } }
+      if (v) { const a = JSON.parse(v); if (a && a.tenantId) { _profile = { uid: u.uid, tenantId: a.tenantId, role: a.role || "agency_admin", name: "The Care Royal (viewing)", email }; return _profile; } }
     } catch { /* ignore */ }
     // Otherwise: platform owner, no tenant; only touches /api/auth and /api/platform.
-    _profile = { uid: u.uid, tenantId: "", role: "platform_owner", name: "Care Royal", email };
+    _profile = { uid: u.uid, tenantId: "", role: "platform_owner", name: "The Care Royal", email };
     return _profile;
   }
   const snap = await getDoc(doc(db(), "users", u.uid));
@@ -164,7 +164,7 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
   const logEvent = (text: string) => create("events", "eventId", { tenantId: T, text, actor: m.name || m.email || "", createdAt: now() }).then(() => undefined).catch(() => undefined);
 
   // ---- Platform super-admin: approve/suspend agencies (no tenant scope) ------
-  // Care Royal (the platform owner) reviews every new agency here. Access is
+  // The Care Royal (the platform owner) reviews every new agency here. Access is
   // enforced both by this email check and by firestore.rules.
   if (p === "/api/platform") {
     if (m.role !== "platform_owner") return { error: "Not authorized." };
@@ -548,6 +548,19 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       return ok();
     }
     if (body.action === "sign") { await update("documents", body.docId, { status: "signed", signedBy: body.signerName || m.name, signedAt: now(), signature: body.signature || "" }); return ok(); }
+    // Attach an already-uploaded file (Firebase Storage) as a document record.
+    if (body.action === "attach") {
+      const subjectType = body.subjectType === "caregiver" ? "caregiver" : "household";
+      await create("documents", "docId", {
+        tenantId: T, subjectType, subjectId: body.subjectId || "",
+        householdId: subjectType === "household" ? (body.subjectId || "") : "",
+        template: "upload", status: "file", title: body.title || body.fileName || "Uploaded document",
+        fileUrl: body.fileUrl || "", fileName: body.fileName || "", fileType: body.fileType || "",
+        content: "", signature: "", driveFileId: "", signedBy: "", signedAt: "", createdAt: now(),
+      });
+      void logEvent(`Uploaded a document: ${body.fileName || body.title || "file"}`);
+      return ok();
+    }
   }
 
   // ---- leads

@@ -1,4 +1,4 @@
-// Care Royal assistant — deterministic, template + rule based. No external AI
+// The Care Royal assistant — deterministic, template + rule based. No external AI
 // key or network call: care plans, visit-note summaries with risk flags, family
 // updates and intake parsing are generated entirely in code so every agency gets
 // them out of the box. fb.ts and demo.ts both route /api/ai through generate().
@@ -111,7 +111,7 @@ function familyUpdate(i: Input): string {
   if (mood) parts.push(`${rec.split(" ")[0]} seemed ${mood} today.`);
   parts.push(`We're keeping a close eye on daily wellbeing and comfort.`);
   if (next) parts.push(`Next up: ${next}.`);
-  parts.push("", "Please reach out any time with questions — we're glad to help.", "", "Warm regards,", "Your Care Royal team");
+  parts.push("", "Please reach out any time with questions — we're glad to help.", "", "Warm regards,", "Your The Care Royal team");
   return parts.join("\n");
 }
 

@@ -28,6 +28,14 @@ service firebase.storage {
                    && request.resource.contentType.matches('image/.*');
     }
 
+    // Uploaded documents (PDFs, images, office files) attached to a client or
+    // staff member. Tenant-scoped; readable by tenant members, <= 20MB.
+    match /documents/{tenantId}/{allPaths=**} {
+      allow read: if signedIn() && myTenant() == tenantId;
+      allow write: if signedIn() && myTenant() == tenantId
+                   && request.resource.size < 20 * 1024 * 1024;
+    }
+
     match /{allPaths=**} { allow read, write: if false; }
   }
 }

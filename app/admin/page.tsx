@@ -106,7 +106,7 @@ export default function AdminConsole() {
       <header className="border-b border-line bg-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-5 py-4">
           <div>
-            <h1 className="font-serif text-2xl text-ink">Care Royal — Platform</h1>
+            <h1 className="font-serif text-2xl text-ink">The Care Royal — Platform</h1>
             <p className="text-sm text-ink-light">Approve and manage agencies on the network.</p>
           </div>
           <button className="btn-ghost" onClick={() => signOutAndRedirect()}>Sign out</button>

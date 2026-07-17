@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Care Royal — run your care agency end to end",
+  title: "The Care Royal — run your care agency end to end",
   description: "Scheduling, family bookings, care plans, e-sign, payments and payroll — one platform for home-care agencies.",
 };
 

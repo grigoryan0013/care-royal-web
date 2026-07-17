@@ -116,7 +116,7 @@ export default function PortalShell({
     </nav>
   );
 
-  const brandName = brand2.displayName || "Care Royal";
+  const brandName = brand2.displayName || "The Care Royal";
   const brand = (
     <div className="flex items-center gap-2 px-6 py-5">
       {brand2.logoUrl

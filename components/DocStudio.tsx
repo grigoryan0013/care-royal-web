@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import SignaturePad from "./SignaturePad";
 import { calculateStub, FREQUENCIES } from "../app/lib/tax";
 
-// Care Royal Document Studio — generate & download pay documents (paystub,
+// The Care Royal Document Studio — generate & download pay documents (paystub,
 // invoice, receipt, verification letter). Client-side only: it produces the
-// DOCUMENTS. Care Royal never files taxes or moves money.
+// DOCUMENTS. The Care Royal never files taxes or moves money.
 
 type DocType = "paystub" | "invoice" | "receipt" | "letter" | "careplan";
 interface Company { name: string; ein: string; address: string; phone: string; email: string }
@@ -193,7 +193,7 @@ export default function DocStudio({ tenantId, tenantName, caregivers = [], defau
           </div>
 
           <button onClick={download} className="btn-primary w-full">Download PDF</button>
-          <p className="hint">Paystub figures are estimates for document purposes — Care Royal does not file taxes or move money.</p>
+          <p className="hint">Paystub figures are estimates for document purposes — The Care Royal does not file taxes or move money.</p>
         </div>
 
         {/* live preview */}
