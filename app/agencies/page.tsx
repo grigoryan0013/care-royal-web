@@ -44,8 +44,8 @@ export default function AgencyInquiry() {
     <main className="app-bg min-h-screen">
       <header className="border-b border-rule bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-4">
-          <Link href="/app/login/" className="font-serif text-xl font-semibold text-ink">The Care Royal</Link>
-          <Link href="/app/login/" className="text-sm text-ink-light hover:text-ink">Agency sign in</Link>
+          <Link href="/login/" className="font-serif text-xl font-semibold text-ink">The Care Royal</Link>
+          <Link href="/login/" className="text-sm text-ink-light hover:text-ink">Agency sign in</Link>
         </div>
       </header>
 

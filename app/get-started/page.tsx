@@ -76,8 +76,8 @@ export default function GetStarted() {
     <main className="app-bg min-h-screen">
       <header className="border-b border-rule bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-5 py-4">
-          <Link href="/app/login/" className="font-serif text-xl font-semibold text-ink">The Care Royal</Link>
-          <Link href="/app/login/" className="text-sm text-ink-light hover:text-ink">Already have an account? Sign in</Link>
+          <Link href="/login/" className="font-serif text-xl font-semibold text-ink">The Care Royal</Link>
+          <Link href="/login/" className="text-sm text-ink-light hover:text-ink">Already have an account? Sign in</Link>
         </div>
       </header>
 
