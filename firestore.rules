@@ -156,7 +156,11 @@ service cloud.firestore {
     }
     match /caregiverProfiles/{id} {
       allow read: if sameTenantR();
-      allow create, update: if signedIn() && sameTenantW();
+      // Only the agency, or the caregiver editing their OWN profile, may write —
+      // not other tenant members (e.g. a family) touching caregiver credentials.
+      allow create, update: if sameTenantW() && (
+        isAgency() || request.resource.data.userId == request.auth.uid
+      );
     }
 
     // ---- households & recipients (family-owned, tenant-isolated) ----
@@ -244,9 +248,14 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Item 6: parent organizations (franchise / white-label).
+    // Item 6: parent organizations (franchise / white-label). Readable only by
+    // the org owner or a member of a tenant that belongs to this org — not by
+    // every signed-in user (which would leak all orgs across tenants).
     match /orgs/{id} {
-      allow read: if signedIn();
+      allow read: if signedIn() && (
+        resource.data.ownerUid == request.auth.uid
+        || (myTenant() != '' && get(/databases/$(database)/documents/tenants/$(myTenant())).data.get('orgId', '') == id)
+      );
       allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
       allow update: if signedIn() && resource.data.ownerUid == request.auth.uid;
       allow delete: if false;
