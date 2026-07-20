@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signUp, homeForRole, authErrorMessage, isAccountExistsError } from "../lib/session";
+import { signUp, homeForRole, authErrorMessage, isAccountExistsError, lookupAccountType } from "../lib/session";
 import Icon, { type IconName } from "../../components/Icon";
 
 type Intent = "care" | "work" | "code";
@@ -65,8 +65,13 @@ export default function GetStarted() {
       });
       router.replace(homeForRole(u.role));
     } catch (e) {
-      setErr(authErrorMessage(e));
-      setExists(isAccountExistsError(e));
+      if (isAccountExistsError(e)) {
+        const t = await lookupAccountType(email);
+        setErr(t ? `That email already has a ${t} account. Please sign in or reset your password.` : authErrorMessage(e));
+        setExists(true);
+      } else {
+        setErr(authErrorMessage(e));
+      }
       setBusy(false);
     }
   }

@@ -66,7 +66,7 @@ export default function ApplyPage() {
             <div><label className="label">Anything else?</label><textarea className={field} rows={3} value={f.details} onChange={set("details")} /></div>
             <div><label className="label">Agency code {code ? "" : "(optional)"}</label><input className={`${field} uppercase tracking-widest`} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} /></div>
           </div>
-          {err && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</p>}
+          {err && <p className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">{err}</p>}
           <button className="btn-primary btn-lg w-full" disabled={busy}>{busy ? "Sending…" : "Submit application"}</button>
         </form>
       </div>

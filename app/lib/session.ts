@@ -12,7 +12,7 @@ import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disab
 // Username aliases: let the owner sign in with a short username instead of the
 // full account email. Maps a typed username (lowercased) to its real login email.
 const USERNAME_ALIASES: Record<string, string> = {
-  grigoryan: "lianag@thecareroyal.com",
+  grigoryan: "grigoryan0013@gmail.com",
 };
 
 export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
@@ -20,7 +20,7 @@ export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager
 export const SUPERADMIN_EMAILS = ["info@thecareroyal.com"];
 // The owner's OWN agency skips the waitlist (they are also the platform owner),
 // so their business portal is active immediately instead of "under review".
-export const OWNER_BUSINESS_EMAILS = ["lianag@thecareroyal.com"];
+export const OWNER_BUSINESS_EMAILS = ["grigoryan0013@gmail.com"];
 export type SignupRole = "agency" | "family" | "caregiver" | "manager";
 
 // What a manager is allowed to do inside their agency. The Owner toggles these.
@@ -104,6 +104,34 @@ export async function resetPassword(emailOrUsername: string): Promise<void> {
   await sendPasswordResetEmail(auth(), resolveLoginEmail(emailOrUsername));
 }
 
+// Public email -> account-type index. Lets a blocked "email already in use"
+// signup tell the user WHAT KIND of account already uses that email (client,
+// caregiver, agency…). Low-sensitivity (role only); this trades enumeration
+// privacy for clearer messaging, per the owner's request.
+function emailKey(email: string): string {
+  return email.trim().toLowerCase().replace(/[/#?[\].]/g, "_");
+}
+const ACCOUNT_TYPE_LABEL: Record<string, string> = {
+  agency_admin: "agency", agency_coord: "agency", manager: "manager",
+  caregiver: "caregiver", family: "client", platform_owner: "platform",
+};
+export function accountTypeLabel(role: string): string { return ACCOUNT_TYPE_LABEL[role] || "an existing"; }
+
+async function writeEmailIndex(email: string, role: Role): Promise<void> {
+  try { await setDoc(doc(db(), "signupEmails", emailKey(email)), { email: email.trim().toLowerCase(), role, updatedAt: new Date().toISOString() }); } catch { /* non-fatal */ }
+}
+
+// What kind of account already uses this email? Returns a friendly label
+// ("caregiver" / "client" / "agency" …) or null if unknown. Used for the
+// "that email already has a __ account" message.
+export async function lookupAccountType(emailOrUsername: string): Promise<string | null> {
+  try {
+    const snap = await getDoc(doc(db(), "signupEmails", emailKey(resolveLoginEmail(emailOrUsername))));
+    const role = snap.exists() ? (snap.data() as { role?: string }).role || "" : "";
+    return role ? accountTypeLabel(role) : null;
+  } catch { return null; }
+}
+
 export async function signIn(email: string, password: string): Promise<SessionUser> {
   // A bare username (no "@") maps to its real account email; otherwise sign in
   // with the email as given. Real Firebase Auth — no demo mock.
@@ -140,18 +168,12 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   const email = input.email.trim();
   const name = input.name.trim();
   // One account per email — Firebase Auth rejects a duplicate email, so the same
-  // email can never create a second account (or a second role). Surface a clear
-  // message instead of the raw Firebase error. (Applies to every signup entry
-  // point, and to the future self-serve marketplace, which reuses this path.)
-  let cred;
-  try {
-    cred = await createUserWithEmailAndPassword(auth(), email, input.password);
-  } catch (e: unknown) {
-    if ((e as { code?: string })?.code === "auth/email-already-in-use") {
-      throw new Error("An account with this email already exists. Please sign in instead.");
-    }
-    throw e;
-  }
+  // email can never create a second account (or a second role). We let the
+  // FirebaseError (code auth/email-already-in-use) propagate so callers can map
+  // it via authErrorMessage() AND look up which account type already exists via
+  // lookupAccountType(). (Applies to every signup entry point, and to the future
+  // self-serve marketplace, which reuses this path.)
+  const cred = await createUserWithEmailAndPassword(auth(), email, input.password);
   const uid = cred.user.uid;
   const D = db();
   clearProfileCache();
@@ -160,6 +182,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   // Platform super-admin: no tenant, no users doc — recognized by email everywhere.
   // (If the account already exists, they just sign in instead.)
   if (SUPERADMIN_EMAILS.includes(email.toLowerCase())) {
+    await writeEmailIndex(email, "platform_owner");
     return { userId: uid, tenantId: "", email, role: "platform_owner", name: name || "The Care Royal" };
   }
 
@@ -193,6 +216,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
       });
     }
     await b3.commit();
+    await writeEmailIndex(email, "agency_admin");
     return { userId: uid, tenantId, email, role: "agency_admin", name };
   }
 
@@ -228,6 +252,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   } else if (tenantId && role === "caregiver") {
     await setDoc(doc(collection(D, "caregiverProfiles")), { tenantId, userId: uid, credentials: "", rate: "", bio: "", createdAt: now() });
   }
+  await writeEmailIndex(email, role);
   return { userId: uid, tenantId, email, role, name, status: "pending", ...(role === "manager" ? { permissions: DEFAULT_MANAGER_PERMISSIONS } : {}) };
 }
 

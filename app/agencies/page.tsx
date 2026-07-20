@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signUp, homeForRole, authErrorMessage, isAccountExistsError } from "../lib/session";
+import { signUp, homeForRole, authErrorMessage, isAccountExistsError, lookupAccountType } from "../lib/session";
 import Icon, { type IconName } from "../../components/Icon";
 
 const BENEFITS: { icon: IconName; title: string; body: string }[] = [
@@ -35,8 +35,13 @@ export default function AgencyInquiry() {
       const u = await signUp({ role: "agency", agencyName, name, email, password, phone, onboarding: { intent: "agency_inquiry", agencyName, size, tools } });
       router.replace(homeForRole(u.role));
     } catch (e2) {
-      setErr(authErrorMessage(e2));
-      setExists(isAccountExistsError(e2));
+      if (isAccountExistsError(e2)) {
+        const t = await lookupAccountType(email);
+        setErr(t ? `That email already has a ${t} account. Please sign in or reset your password.` : authErrorMessage(e2));
+        setExists(true);
+      } else {
+        setErr(authErrorMessage(e2));
+      }
       setBusy(false);
     }
   }

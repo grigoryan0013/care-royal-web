@@ -632,12 +632,23 @@ function Row({ k, v }: { k: string; v: string }) {
 // overtime avoidance, geography/availability and credential match.
 function AutoAssign({ onChange }: { onChange: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
   async function run() {
-    setBusy(true);
-    try { const d = await apiPost("/api/schedule", { action: "auto_assign" }); onChange(); alert(`Auto-assigned ${d.assigned} shift${d.assigned === 1 ? "" : "s"}${d.remaining ? `, ${d.remaining} still need attention` : ""}.`); }
-    finally { setBusy(false); }
+    setBusy(true); setMsg("");
+    try {
+      const d = await apiPost("/api/schedule", { action: "auto_assign" });
+      onChange();
+      setMsg(`Auto-assigned ${d.assigned} shift${d.assigned === 1 ? "" : "s"}${d.remaining ? ` — ${d.remaining} still need attention.` : "."}`);
+    } catch {
+      setMsg("We couldn't auto-assign the shifts just now. Please try again in a moment.");
+    } finally { setBusy(false); }
   }
-  return <button onClick={run} disabled={busy} className="btn-soft btn-sm">{busy ? "Optimizing…" : "Auto-assign open shifts"}</button>;
+  return (
+    <div className="space-y-2">
+      <button onClick={run} disabled={busy} className="btn-soft btn-sm">{busy ? "Optimizing…" : "Auto-assign open shifts"}</button>
+      {msg && <p className="rounded-lg border-l-4 border-brand bg-brand-light px-3.5 py-2.5 text-sm text-ink">{msg}</p>}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- reports

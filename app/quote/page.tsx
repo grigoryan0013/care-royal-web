@@ -94,7 +94,7 @@ export default function QuotePage() {
             <div><label className="label">Agency code {code ? "" : "(optional)"}</label><input className={`${field} uppercase tracking-widest`} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="If an agency gave you a code" /></div>
           </div>
 
-          {err && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</p>}
+          {err && <p className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">{err}</p>}
           <button className="btn-primary btn-lg w-full" disabled={busy}>{busy ? "Sending…" : "Request my free quote"}</button>
           <p className="text-center text-xs text-ink-light">By submitting you agree to be contacted about your care request. See our <Link href="/privacy/" className="text-brand">privacy policy</Link>.</p>
         </form>

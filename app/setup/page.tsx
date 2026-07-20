@@ -55,7 +55,7 @@ export default function Setup() {
             <div><label className="label">Your name</label><input className="field" value={name} onChange={(e) => setName(e.target.value)} required /></div>
             <div><label className="label">Admin email</label><input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="none" required /></div>
             <div><label className="label">Password</label><input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required /></div>
-            {err && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</p>}
+            {err && <p className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">{err}</p>}
             <button className="btn-primary w-full py-3" disabled={busy}>{busy ? "Setting up…" : "Create admin & agency"}</button>
           </form>
         </div>

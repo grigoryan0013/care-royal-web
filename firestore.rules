@@ -94,6 +94,16 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---- email -> account-type index (role only, no PII beyond the email key).
+    // Public read so a blocked "email already in use" signup can tell the user
+    // which account type already exists. Each user writes only their OWN entry
+    // (the doc's email must equal their verified auth email).
+    match /signupEmails/{key} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.resource.data.email == request.auth.token.email;
+      allow delete: if false;
+    }
+
     // ---- user profiles (role + tenant live here) ----
     // SECURITY: the whole tenant-isolation model trusts users/{uid}.tenantId and
     // .role (myTenant()/myRole()). Therefore a self-created/self-edited profile

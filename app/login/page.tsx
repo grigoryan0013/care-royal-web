@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signIn, signUp, homeForRole, verifySession, apiGet, authErrorMessage, resetPassword, type SignupRole } from "../lib/session";
+import { signIn, signUp, homeForRole, verifySession, apiGet, authErrorMessage, resetPassword, isAccountExistsError, lookupAccountType, type SignupRole } from "../lib/session";
 import Icon from "../../components/Icon";
 
 type Tab = "signin" | "signup";
@@ -60,7 +60,12 @@ export default function AuthPage() {
         router.replace(homeForRole(u.role));
       }
     } catch (e2: unknown) {
-      setErr(authErrorMessage(e2));
+      if (isAccountExistsError(e2)) {
+        const t = await lookupAccountType(email);
+        setErr(t ? `That email already has a ${t} account. Please sign in or reset your password.` : authErrorMessage(e2));
+      } else {
+        setErr(authErrorMessage(e2));
+      }
     } finally {
       setBusy(false);
     }

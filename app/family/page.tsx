@@ -327,7 +327,7 @@ function NewBooking({ recipients, services, onDone }: { recipients: Recipient[];
   return (
     <form onSubmit={submit} className="card space-y-4">
       <h3 className="font-serif text-xl text-ink">Request a booking</h3>
-      {recipients.length === 0 && <p className="text-sm text-danger">Add a care profile first (Household tab).</p>}
+      {recipients.length === 0 && <p className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">Add a care profile first — head to the Household tab to add the person, child, pet, or home you need care for.</p>}
       <div><label className="label">Who is this for?</label>
         <select className="field" value={recipientId} onChange={(e) => { setRecipientId(e.target.value); setServiceId(""); }} required>
           <option value="">Select a profile</option>
@@ -356,7 +356,7 @@ function NewBooking({ recipients, services, onDone }: { recipients: Recipient[];
         )}
       </div>
       <div><label className="label">Notes for the agency</label><textarea className="field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-      {err && <p className="text-sm text-danger">{err}</p>}
+      {err && <p className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">{err}</p>}
       <button className="btn-primary" disabled={busy || !serviceId}>{busy ? "Requesting..." : "Request booking"}</button>
     </form>
   );
@@ -367,6 +367,7 @@ interface Invoice { invoiceId: string; amount: string; status: string; serviceNa
 function Payments() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [busy, setBusy] = useState("");
+  const [payMsg, setPayMsg] = useState("");
 
   const load = useCallback(async () => {
     const d = await apiGet("/api/invoices").catch(() => ({ invoices: [] }));
@@ -375,13 +376,13 @@ function Payments() {
   useEffect(() => { load(); }, [load]);
 
   async function pay(invoiceId: string) {
-    setBusy(invoiceId);
+    setBusy(invoiceId); setPayMsg("");
     try {
       const d = await apiPost("/api/invoices", { action: "pay", invoiceId });
       if (d.url) window.location.href = d.url;
       else load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Payment could not start");
+      setPayMsg(e instanceof Error ? e.message : "We couldn't start the payment. Please try again in a moment.");
     } finally { setBusy(""); }
   }
 
@@ -390,6 +391,7 @@ function Payments() {
   };
   return (
     <div className="space-y-2">
+      {payMsg && <div className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">{payMsg}</div>}
       {invoices.length === 0 && <div className="card"><p className="text-sm text-ink-light">No invoices yet.</p></div>}
       {invoices.map((inv) => (
         <div key={inv.invoiceId} className="card flex items-center justify-between">
