@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signIn, signUp, homeForRole, verifySession, apiGet, type SignupRole } from "../lib/session";
-import { hasDemoSession } from "../lib/demo";
+import { signIn, signUp, homeForRole, verifySession, apiGet, authErrorMessage, resetPassword, type SignupRole } from "../lib/session";
 import Icon from "../../components/Icon";
 
 type Tab = "signin" | "signup";
@@ -33,6 +32,9 @@ export default function AuthPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [agencyBrand, setAgencyBrand] = useState("");
+  const [showReset, setShowReset] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -51,18 +53,30 @@ export default function AuthPage() {
     try {
       if (tab === "signin") {
         const u = await signIn(email, password);
-        // Demo login lands on the hub (all portals + platform-owner console).
-        router.replace(hasDemoSession() ? "/demo/" : homeForRole(u.role));
+        router.replace(homeForRole(u.role));
       } else {
-        if (password.length < 6) { setErr("Choose a password with at least 6 characters."); return; }
+        if (password.length < 6) { setErr("Please choose a password with at least 6 characters."); return; }
         const u = await signUp({ role, name, email, password, agencyName, joinCode });
         router.replace(homeForRole(u.role));
       }
     } catch (e2: unknown) {
-      const m = e2 instanceof Error ? e2.message : "Something went wrong";
-      setErr(m.replace("Firebase:", "").replace(/\(auth\/.*\)\.?/, "").trim() || m);
+      setErr(authErrorMessage(e2));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function sendReset(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(""); setResetMsg(""); setResetBusy(true);
+    try {
+      await resetPassword(email);
+      setResetMsg(`If an account exists for ${email.includes("@") ? email : "that login"}, we've emailed a password-reset link. Check your inbox (and spam).`);
+    } catch (e2: unknown) {
+      // Don't reveal whether the account exists — show the same reassuring note.
+      setResetMsg(`If an account exists for ${email.includes("@") ? email : "that login"}, we've emailed a password-reset link. Check your inbox (and spam).`);
+    } finally {
+      setResetBusy(false);
     }
   }
 
@@ -113,6 +127,22 @@ export default function AuthPage() {
                 Joining <span className="font-semibold">{agencyBrand}</span> on The Care Royal
               </div>
             )}
+            {showReset ? (
+              <>
+                <h1 className="font-serif text-2xl text-ink">Reset your password</h1>
+                <p className="mb-6 mt-1 text-sm text-ink-light">Enter your email or username and we&apos;ll email you a secure link to set a new password.</p>
+                <form onSubmit={sendReset} className="space-y-4">
+                  <div>
+                    <label className="label">Email or username</label>
+                    <input className="field" value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="none" placeholder="you@agency.com" required />
+                  </div>
+                  {resetMsg && <p className="rounded-lg border-l-4 border-brand bg-brand-light px-3.5 py-2.5 text-sm text-ink">{resetMsg}</p>}
+                  <button className="btn-primary btn-lg w-full" disabled={resetBusy}>{resetBusy ? "Sending…" : "Email me a reset link"}</button>
+                  <button type="button" onClick={() => { setShowReset(false); setResetMsg(""); setErr(""); }} className="block w-full text-center text-sm font-semibold text-brand">Back to sign in</button>
+                </form>
+              </>
+            ) : (
+            <>
             <h1 className="font-serif text-2xl text-ink">{tab === "signin" ? "Welcome back" : "Get started"}</h1>
             <p className="mb-6 mt-1 text-sm text-ink-light">
               {tab === "signin" ? "Sign in to your Care Royal workspace." : "Create your account in under a minute."}
@@ -164,15 +194,27 @@ export default function AuthPage() {
                 <input className="field" type={tab === "signup" ? "email" : "text"} value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="none" placeholder="you@agency.com" required />
               </div>
               <div>
-                <label className="label">Password</label>
+                <div className="flex items-baseline justify-between">
+                  <label className="label">Password</label>
+                  {tab === "signin" && <button type="button" onClick={() => { setShowReset(true); setErr(""); setResetMsg(""); }} className="text-xs font-semibold text-brand">Forgot password?</button>}
+                </div>
                 <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={tab === "signup" ? "At least 6 characters" : "••••••••"} required />
               </div>
 
-              {err && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</p>}
+              {err && (
+                <div className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">
+                  {err}
+                  {/\breset your password\b/i.test(err) && (
+                    <button type="button" onClick={() => { setShowReset(true); setErr(""); setResetMsg(""); }} className="ml-1 font-semibold text-brand">Reset it now</button>
+                  )}
+                </div>
+              )}
               <button className="btn-primary btn-lg w-full" disabled={busy}>
                 {busy ? "Please wait…" : tab === "signin" ? "Sign in" : "Create account"}
               </button>
             </form>
+            </>
+            )}
           </div>
 
           <p className="mt-6 text-center text-xs text-ink-light">

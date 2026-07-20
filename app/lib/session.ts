@@ -1,7 +1,7 @@
 // Session + API helpers. Real mode = Firebase Auth + Firestore (client-side).
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  updateProfile, signOut, onAuthStateChanged,
+  updateProfile, signOut, onAuthStateChanged, sendPasswordResetEmail,
 } from "firebase/auth";
 import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
 import { auth, db } from "./firebase";
@@ -64,11 +64,50 @@ export async function verifySession(): Promise<SessionUser | null> {
   }
 }
 
+// Resolve a typed identifier (email OR a known username) to the login email.
+function resolveLoginEmail(typed: string): string {
+  const t = typed.trim();
+  return t.includes("@") ? t : (USERNAME_ALIASES[t.toLowerCase()] || t);
+}
+
+// True when an auth error means "this email already has an account" — the caller
+// should offer sign-in / password reset instead of a dead end.
+export function isAccountExistsError(e: unknown): boolean {
+  return (e as { code?: string })?.code === "auth/email-already-in-use";
+}
+
+// Turn a Firebase auth error (or our own thrown Error) into ONE clear, calm
+// sentence for the user. Never leaks "Firebase: Error (auth/...)" fragments.
+export function authErrorMessage(e: unknown): string {
+  const code = (e as { code?: string })?.code || "";
+  switch (code) {
+    case "auth/email-already-in-use": return "That email already has an account. Please sign in or reset your password.";
+    case "auth/invalid-email": return "That doesn't look like a valid email address.";
+    case "auth/missing-email": return "Please enter your email address.";
+    case "auth/weak-password": return "Please choose a password with at least 6 characters.";
+    case "auth/missing-password": return "Please enter a password.";
+    case "auth/wrong-password":
+    case "auth/invalid-credential": return "That email or password doesn't match. Try again or reset your password.";
+    case "auth/user-not-found": return "We couldn't find an account with that email. Check the spelling, or create an account.";
+    case "auth/too-many-requests": return "Too many attempts. Please wait a moment and try again.";
+    case "auth/network-request-failed": return "Network problem — check your connection and try again.";
+  }
+  // Our own clean Error (e.g. bad join code) — use its message as-is.
+  const m = e instanceof Error ? e.message : "";
+  if (m && !/firebase/i.test(m)) return m;
+  return "Something went wrong. Please try again.";
+}
+
+// Send Firebase's secure password-reset email (a branded reset link). Works on
+// the Spark plan, no backend. Accepts an email or a known username alias.
+export async function resetPassword(emailOrUsername: string): Promise<void> {
+  await sendPasswordResetEmail(auth(), resolveLoginEmail(emailOrUsername));
+}
+
 export async function signIn(email: string, password: string): Promise<SessionUser> {
-  const typed = email.trim();
   // A bare username (no "@") maps to its real account email; otherwise sign in
   // with the email as given. Real Firebase Auth — no demo mock.
-  const id = typed.includes("@") ? typed : (USERNAME_ALIASES[typed.toLowerCase()] || typed);
+  const id = resolveLoginEmail(email);
   await signInWithEmailAndPassword(auth(), id, password);
   clearProfileCache();
   const d = await fbHandle("GET", "/api/auth");

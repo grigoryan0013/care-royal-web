@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signUp, homeForRole } from "../lib/session";
+import { signUp, homeForRole, authErrorMessage, isAccountExistsError } from "../lib/session";
 import Icon, { type IconName } from "../../components/Icon";
 
 type Intent = "care" | "work" | "code";
@@ -31,6 +31,7 @@ export default function GetStarted() {
   const [agencyRole, setAgencyRole] = useState<"manager" | "caregiver">("manager");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [exists, setExists] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -52,8 +53,8 @@ export default function GetStarted() {
   }
 
   async function submit() {
-    setErr("");
-    if (password.length < 6) { setErr("Choose a password with at least 6 characters."); return; }
+    setErr(""); setExists(false);
+    if (password.length < 6) { setErr("Please choose a password with at least 6 characters."); return; }
     setBusy(true);
     try {
       const role = intent === "care" ? "family" : intent === "work" ? "caregiver" : agencyRole;
@@ -64,8 +65,8 @@ export default function GetStarted() {
       });
       router.replace(homeForRole(u.role));
     } catch (e) {
-      const m = e instanceof Error ? e.message : "Something went wrong";
-      setErr(m.replace("Firebase:", "").replace(/\(auth\/.*\)\.?/, "").trim() || m);
+      setErr(authErrorMessage(e));
+      setExists(isAccountExistsError(e));
       setBusy(false);
     }
   }
@@ -152,7 +153,12 @@ export default function GetStarted() {
             <Field label="Email"><input className="field" type="email" autoCapitalize="none" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></Field>
             <Field label="Phone (optional)"><input className="field" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" /></Field>
             <Field label="Password"><input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" /></Field>
-            {err && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</p>}
+            {err && (
+              <div className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">
+                {err}
+                {exists && <> <Link href="/login/" className="font-semibold text-brand">Sign in or reset your password</Link></>}
+              </div>
+            )}
           </StepCard>
         )}
 

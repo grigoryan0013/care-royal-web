@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signUp, homeForRole } from "../lib/session";
+import { signUp, homeForRole, authErrorMessage, isAccountExistsError } from "../lib/session";
 import Icon, { type IconName } from "../../components/Icon";
 
 const BENEFITS: { icon: IconName; title: string; body: string }[] = [
@@ -24,18 +24,19 @@ export default function AgencyInquiry() {
   const [tools, setTools] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [exists, setExists] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setErr("");
-    if (password.length < 6) { setErr("Choose a password with at least 6 characters."); return; }
+    setErr(""); setExists(false);
+    if (password.length < 6) { setErr("Please choose a password with at least 6 characters."); return; }
     setBusy(true);
     try {
       const u = await signUp({ role: "agency", agencyName, name, email, password, phone, onboarding: { intent: "agency_inquiry", agencyName, size, tools } });
       router.replace(homeForRole(u.role));
     } catch (e2) {
-      const m = e2 instanceof Error ? e2.message : "Something went wrong";
-      setErr(m.replace("Firebase:", "").replace(/\(auth\/.*\)\.?/, "").trim() || m);
+      setErr(authErrorMessage(e2));
+      setExists(isAccountExistsError(e2));
       setBusy(false);
     }
   }
@@ -80,7 +81,12 @@ export default function AgencyInquiry() {
             </div>
             <div><label className="label">What are you using today? (optional)</label><input className="field" value={tools} onChange={(e) => setTools(e.target.value)} placeholder="e.g. spreadsheets, another platform" /></div>
             <div><label className="label">Create a password</label><input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" required /></div>
-            {err && <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{err}</p>}
+            {err && (
+              <div className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">
+                {err}
+                {exists && <> <Link href="/login/" className="font-semibold text-brand">Sign in or reset your password</Link></>}
+              </div>
+            )}
             <button className="btn-primary btn-lg w-full" disabled={busy}>{busy ? "Creating your account…" : "Create account & request quote"}</button>
             <p className="text-center text-xs text-ink-light">Your workspace is created right away; our team reviews it and sends your quote.</p>
           </form>
