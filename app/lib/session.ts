@@ -1,5 +1,4 @@
 // Session + API helpers. Real mode = Firebase Auth + Firestore (client-side).
-// Demo mode (grigoryan/201816) = in-browser mock, still available for testing.
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   updateProfile, signOut, onAuthStateChanged,
@@ -8,15 +7,20 @@ import { collection, doc, getDoc, setDoc, writeBatch } from "firebase/firestore"
 import { auth, db } from "./firebase";
 import { fbHandle, clearProfileCache } from "./fb";
 import { DEFAULT_SERVICES } from "./catalog";
-import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disableDemo, enableDemo } from "./demo";
+import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disableDemo } from "./demo";
 
-// Documented owner/testing login — enters the in-browser demo (no Firebase).
-export const DEMO_USERNAME = "grigoryan";
-export const DEMO_PASSWORD = "201816";
+// Username aliases: let the owner sign in with a short username instead of the
+// full account email. Maps a typed username (lowercased) to its real login email.
+const USERNAME_ALIASES: Record<string, string> = {
+  grigoryan: "lianag@thecareroyal.com",
+};
 
 export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
 // The Care Royal platform super-admins (recognized by login email — no tenant).
 export const SUPERADMIN_EMAILS = ["info@thecareroyal.com"];
+// The owner's OWN agency skips the waitlist (they are also the platform owner),
+// so their business portal is active immediately instead of "under review".
+export const OWNER_BUSINESS_EMAILS = ["lianag@thecareroyal.com"];
 export type SignupRole = "agency" | "family" | "caregiver" | "manager";
 
 // What a manager is allowed to do inside their agency. The Owner toggles these.
@@ -61,14 +65,10 @@ export async function verifySession(): Promise<SessionUser | null> {
 }
 
 export async function signIn(email: string, password: string): Promise<SessionUser> {
-  const id = email.trim();
-  // Demo login shortcut: enters the in-browser mock (sample data, all portals via
-  // /demo). No Firebase call — must run before signInWithEmailAndPassword, which
-  // would reject "grigoryan" as an invalid email.
-  if (id.toLowerCase() === DEMO_USERNAME && password === DEMO_PASSWORD) {
-    enableDemo();
-    return demoUser("agency_admin");
-  }
+  const typed = email.trim();
+  // A bare username (no "@") maps to its real account email; otherwise sign in
+  // with the email as given. Real Firebase Auth — no demo mock.
+  const id = typed.includes("@") ? typed : (USERNAME_ALIASES[typed.toLowerCase()] || typed);
   await signInWithEmailAndPassword(auth(), id, password);
   clearProfileCache();
   const d = await fbHandle("GET", "/api/auth");
@@ -124,7 +124,8 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     // 1) Tenant + its join code. New agencies are WAITLISTED: status "pending"
     //    until The Care Royal platform owner approves them.
     const b1 = writeBatch(D);
-    b1.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "pending", joinCode: code, ownerUid: uid, ownerEmail: email, ownerName: name, createdAt: now() });
+    const agencyStatus = OWNER_BUSINESS_EMAILS.includes(email.toLowerCase()) ? "active" : "pending";
+    b1.set(tRef, { tenantId, name: agencyName, plan: "trial", status: agencyStatus, joinCode: code, ownerUid: uid, ownerEmail: email, ownerName: name, createdAt: now() });
     // notifyEmail lets the public quote/apply forms route the agency's
     // new-request notification (this stack has no server-side Firestore).
     b1.set(doc(D, "joinCodes", code), { tenantId, agencyName, notifyEmail: email, createdAt: now() });
