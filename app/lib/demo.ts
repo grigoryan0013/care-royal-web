@@ -32,6 +32,9 @@ export function enableDemo() {
   seedIfEmpty();
 }
 export function disableDemo() {
+  // Clear the backend FLAG too — otherwise /api calls keep routing to the mock
+  // and a later REAL login still shows demo data next to the real business.
+  localStorage.removeItem(FLAG);
   localStorage.removeItem(SESSION);
   localStorage.removeItem(ROLE);
 }
