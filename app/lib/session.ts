@@ -117,22 +117,30 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
     const tenantId = tRef.id;
     const code = genCode();
     const agencyName = (input.agencyName || name || "My Agency").trim();
-    const batch = writeBatch(D);
-    // New agencies are WAITLISTED: status "pending" until The Care Royal platform
-    // owner approves them. The agency portal shows a review screen until then.
-    batch.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "pending", joinCode: code, ownerUid: uid, ownerEmail: email, ownerName: name, createdAt: now() });
+    // Firestore rules can't see other writes in the same batch, and the hardened
+    // users-create rule requires the tenant to already exist (owned by uid) before
+    // the owner's profile is written, and the owner profile to exist before the
+    // services rule's isAgency() check resolves. So commit in three ordered steps.
+    // 1) Tenant + its join code. New agencies are WAITLISTED: status "pending"
+    //    until The Care Royal platform owner approves them.
+    const b1 = writeBatch(D);
+    b1.set(tRef, { tenantId, name: agencyName, plan: "trial", status: "pending", joinCode: code, ownerUid: uid, ownerEmail: email, ownerName: name, createdAt: now() });
     // notifyEmail lets the public quote/apply forms route the agency's
     // new-request notification (this stack has no server-side Firestore).
-    batch.set(doc(D, "joinCodes", code), { tenantId, agencyName, notifyEmail: email, createdAt: now() });
-    batch.set(doc(D, "users", uid), { userId: uid, tenantId, role: "agency_admin", name, email, phone: input.phone || "", createdAt: now() });
+    b1.set(doc(D, "joinCodes", code), { tenantId, agencyName, notifyEmail: email, createdAt: now() });
+    await b1.commit();
+    // 2) Owner profile (now the tenant exists and names uid as owner).
+    await setDoc(doc(D, "users", uid), { userId: uid, tenantId, role: "agency_admin", name, email, phone: input.phone || "", createdAt: now() });
+    // 3) Seed the default service catalog.
+    const b3 = writeBatch(D);
     for (const s of DEFAULT_SERVICES) {
-      batch.set(doc(collection(D, "services")), {
+      b3.set(doc(collection(D, "services")), {
         tenantId, category: s.category, name: s.name, profileType: s.profileType,
         pricingModel: s.pricingModel, rate: "", credential: s.credential,
         durationMin: String(s.durationMin), active: "true",
       });
     }
-    await batch.commit();
+    await b3.commit();
     return { userId: uid, tenantId, email, role: "agency_admin", name };
   }
 
@@ -161,7 +169,7 @@ export async function signUp(input: SignupInput): Promise<SessionUser> {
   };
   await setDoc(doc(D, "users", uid), {
     userId: uid, tenantId, role, name, email, phone: input.phone || "",
-    status: "pending", source: code ? "code" : "self", ...extra, createdAt: now(),
+    status: "pending", source: code ? "code" : "self", joinCode: code, ...extra, createdAt: now(),
   });
   if (tenantId && role === "family") {
     await setDoc(doc(collection(D, "households")), { tenantId, primaryUserId: uid, name: name ? `${name}'s household` : "My household", address: "", city: "", zip: "", createdAt: now() });
