@@ -100,7 +100,19 @@ export interface SignupInput {
 export async function signUp(input: SignupInput): Promise<SessionUser> {
   const email = input.email.trim();
   const name = input.name.trim();
-  const cred = await createUserWithEmailAndPassword(auth(), email, input.password);
+  // One account per email — Firebase Auth rejects a duplicate email, so the same
+  // email can never create a second account (or a second role). Surface a clear
+  // message instead of the raw Firebase error. (Applies to every signup entry
+  // point, and to the future self-serve marketplace, which reuses this path.)
+  let cred;
+  try {
+    cred = await createUserWithEmailAndPassword(auth(), email, input.password);
+  } catch (e: unknown) {
+    if ((e as { code?: string })?.code === "auth/email-already-in-use") {
+      throw new Error("An account with this email already exists. Please sign in instead.");
+    }
+    throw e;
+  }
   const uid = cred.user.uid;
   const D = db();
   clearProfileCache();
