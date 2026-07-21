@@ -11,16 +11,26 @@ import { isDemoBackend, hasDemoSession, getDemoRole, demoUser, demoHandle, disab
 
 // Username aliases: let the owner sign in with a short username instead of the
 // full account email. Maps a typed username (lowercased) to its real login email.
+// `grigoryan` is the platform owner's login — it resolves to the super-admin email
+// (info@thecareroyal.com), NOT to any client account. grigoryan0013@gmail.com is a
+// separate, plain CLIENT account and must never be reachable via this alias.
+// `thecareroyal` is the Care Royal flagship AGENCY owner login (agency@thecareroyal.com,
+// role agency_admin on tenant tn_careroyalhq) — full write access to the agency portal,
+// distinct from the platform super-admin above.
 const USERNAME_ALIASES: Record<string, string> = {
-  grigoryan: "grigoryan0013@gmail.com",
+  grigoryan: "info@thecareroyal.com",
+  thecareroyal: "agency@thecareroyal.com",
 };
 
 export type Role = "platform_owner" | "agency_admin" | "agency_coord" | "manager" | "caregiver" | "family";
 // The Care Royal platform super-admins (recognized by login email — no tenant).
 export const SUPERADMIN_EMAILS = ["info@thecareroyal.com"];
-// The owner's OWN agency skips the waitlist (they are also the platform owner),
-// so their business portal is active immediately instead of "under review".
-export const OWNER_BUSINESS_EMAILS = ["grigoryan0013@gmail.com"];
+// Emails whose OWN agency skips the waitlist on self-signup. Empty by design:
+// the platform owner is a super-admin (info@thecareroyal.com) and does NOT create
+// an agency via signup — the Care Royal flagship tenant is provisioned directly and
+// the owner reaches it from the /admin console. Every real agency signup is
+// waitlisted (status "pending") until a super-admin approves it.
+export const OWNER_BUSINESS_EMAILS: string[] = [];
 export type SignupRole = "agency" | "family" | "caregiver" | "manager";
 
 // What a manager is allowed to do inside their agency. The Owner toggles these.

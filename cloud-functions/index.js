@@ -19,7 +19,11 @@ const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 // already impersonates info@thecareroyal.com with the gmail.send scope, so no new
 // Workspace setup is needed; just set this secret. See PAYMENTS.md / EMAIL section.
 const GMAIL_SERVICE_ACCOUNT = defineSecret("GMAIL_SERVICE_ACCOUNT");
-const APP_URL = "https://thecareroyal.com"; // return URL base for onboarding/checkout
+// Return-URL base for Stripe onboarding/checkout + Intuit OAuth. The SaaS is served
+// under /app on the live domain (landing sits at the root — see WyomingCareapp/
+// deploy-with-app.sh, which builds this app with NEXT_PUBLIC_BASE_PATH=/app), so every
+// redirect MUST include /app or it lands on the marketing landing page, not the portal.
+const APP_URL = "https://thecareroyal.com/app";
 
 function stripe() { return new Stripe(STRIPE_SECRET_KEY.value(), { apiVersion: "2024-06-20" }); }
 
@@ -225,12 +229,23 @@ const INTUIT_CLIENT_SECRET = defineSecret("INTUIT_CLIENT_SECRET");
 // (caregiverProfiles.stripeAccountId) via an instant payout. Stays pending until
 // the caregiver has connected a payout destination.
 exports.instantPayout = onCall({ secrets: [STRIPE_SECRET_KEY] }, async (request) => {
-  const { tenantId } = await ctx(request);
+  const { uid, tenantId, role } = await ctx(request);
   const payoutId = request.data && request.data.payoutId;
-  const amount = Math.round((parseFloat(request.data && request.data.amount) || 0) * 100);
   const po = await db.doc(`payouts/${payoutId}`).get();
   if (!po.exists || po.data().tenantId !== tenantId) throw new HttpsError("not-found", "Payout not found.");
-  const cgId = po.data().caregiverId;
+  const p = po.data();
+  // Authorization: only the caregiver who owns this payout, or an agency admin/coordinator,
+  // may release it. Without this any tenant member could cash out anyone's payout.
+  const isAgency = role === "agency_admin" || role === "agency_coord";
+  if (!isAgency && p.caregiverId !== uid) throw new HttpsError("permission-denied", "Not your payout.");
+  // Idempotency: never transfer a payout that is already paid (guards double-cash-out).
+  if (p.status === "paid") return { ok: true, alreadyPaid: true };
+  // Amount is derived from the stored payout — NEVER trusted from the client. A
+  // client-supplied amount let a caller drain the Stripe balance with an arbitrary value.
+  // Caregiver receives net (gross minus the instant-payout fee recorded on the payout).
+  const amount = Math.round((parseFloat(p.net || p.gross) || 0) * 100);
+  if (amount <= 0) throw new HttpsError("failed-precondition", "Nothing to pay out.");
+  const cgId = p.caregiverId;
   const profSnap = await db.collection("caregiverProfiles").where("userId", "==", cgId).limit(1).get();
   const acct = profSnap.empty ? "" : profSnap.docs[0].data().stripeAccountId;
   if (!acct) return { ok: false, pending: true, note: "Caregiver has not connected a payout destination yet." };
