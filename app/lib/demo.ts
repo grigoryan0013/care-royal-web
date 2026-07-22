@@ -520,6 +520,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   if (p === "/api/quickbooks" && method === "POST") {
     if (body.action === "status") return { connected: !!db.Tenant.qboRealmId };
     if (body.action === "connect") { db.Tenant.qboRealmId = "demo_realm"; write(db); return { ok: true, demo: true }; }
+    if (body.action === "exchange") { db.Tenant.qboRealmId = "demo_realm"; write(db); return { ok: true, connected: true, demo: true }; }
     if (body.action === "sync") return { ok: true, synced: db.Invoices.length, demo: true };
   }
   if (p === "/api/audit-pack" && method === "GET") {

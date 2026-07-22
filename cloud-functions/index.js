@@ -339,10 +339,39 @@ exports.checkrStatus = onCall({ secrets: [CHECKR_API_KEY] }, async (request) => 
 
 // ---- ITEM 10: QuickBooks Online sync + audit packs -------------------------
 const INTUIT_REDIRECT = `${APP_URL}/agency/`;
+// Company API base. SANDBOX while using Development keys; switch to
+// https://quickbooks.api.intuit.com when the agency is on PRODUCTION keys.
+const QBO_API_BASE = "https://sandbox-quickbooks.api.intuit.com";
+// Exchange an authorization code or refresh token for Intuit OAuth tokens.
+async function intuitToken(form) {
+  const basic = Buffer.from(`${INTUIT_CLIENT_ID.value()}:${INTUIT_CLIENT_SECRET.value()}`).toString("base64");
+  const r = await fetch("https://oauth.platform.intuit.com/oauth2/v1/tokens", {
+    method: "POST",
+    headers: { Authorization: `Basic ${basic}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams(form).toString(),
+  });
+  return r.json().catch(() => ({}));
+}
 exports.quickbooksStatus = onCall(async (request) => {
   const { tenantId } = await ctx(request);
   const t = await db.doc(`tenants/${tenantId}`).get();
   return { connected: !!(t.exists && t.data().qboRealmId) };
+});
+// OAuth callback: the agency page posts the code + realmId Intuit returned; we
+// trade them for tokens and store them on the tenant. Needs the client secret.
+exports.quickbooksExchange = onCall({ secrets: [INTUIT_CLIENT_ID, INTUIT_CLIENT_SECRET] }, async (request) => {
+  const { tenantId, role } = await ctx(request);
+  if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
+  const code = request.data && request.data.code;
+  const realmId = request.data && request.data.realmId;
+  if (!code || !realmId) throw new HttpsError("invalid-argument", "Missing code or realmId.");
+  const tok = await intuitToken({ grant_type: "authorization_code", code, redirect_uri: INTUIT_REDIRECT });
+  if (!tok.access_token) return { ok: false, note: tok.error_description || tok.error || "Token exchange failed." };
+  await db.doc(`tenants/${tenantId}`).set({
+    qboRealmId: String(realmId), qboAccessToken: tok.access_token,
+    qboRefreshToken: tok.refresh_token || "", qboConnectedAt: new Date().toISOString(),
+  }, { merge: true });
+  return { ok: true, connected: true };
 });
 exports.quickbooksConnect = onCall({ secrets: [INTUIT_CLIENT_ID] }, async (request) => {
   const { tenantId, role } = await ctx(request);
@@ -355,16 +384,23 @@ exports.quickbooksConnect = onCall({ secrets: [INTUIT_CLIENT_ID] }, async (reque
 });
 exports.quickbooksSync = onCall({ secrets: [INTUIT_CLIENT_ID, INTUIT_CLIENT_SECRET] }, async (request) => {
   const { tenantId } = await ctx(request);
-  const t = await db.doc(`tenants/${tenantId}`).get();
+  const ref = db.doc(`tenants/${tenantId}`);
+  const t = await ref.get();
   const realmId = t.exists ? t.data().qboRealmId : "";
-  const token = t.exists ? t.data().qboAccessToken : "";
-  if (!realmId || !token) return { ok: false, note: "Connect QuickBooks first." };
+  const refreshToken = t.exists ? t.data().qboRefreshToken : "";
+  if (!realmId || !refreshToken) return { ok: false, note: "Connect QuickBooks first." };
+  // Intuit access tokens expire hourly — refresh before every sync, then persist
+  // the rotated refresh token.
+  const tok = await intuitToken({ grant_type: "refresh_token", refresh_token: refreshToken });
+  const token = tok.access_token;
+  if (!token) return { ok: false, note: "QuickBooks session expired — reconnect." };
+  await ref.set({ qboAccessToken: token, ...(tok.refresh_token ? { qboRefreshToken: tok.refresh_token } : {}) }, { merge: true });
   const invSnap = await db.collection("invoices").where("tenantId", "==", tenantId).where("status", "==", "unpaid").get();
   // Push each unpaid invoice as a QuickBooks Invoice (best-effort; skips on error).
   let synced = 0;
   for (const doc of invSnap.docs) {
     const inv = doc.data();
-    const r = await fetch(`https://quickbooks.api.intuit.com/v3/company/${realmId}/invoice`, {
+    const r = await fetch(`${QBO_API_BASE}/v3/company/${realmId}/invoice`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ Line: [{ Amount: parseFloat(inv.amount) || 0, DetailType: "SalesItemLineDetail", SalesItemLineDetail: { ItemRef: { value: "1" } } }], CustomerRef: { value: "1" } }),

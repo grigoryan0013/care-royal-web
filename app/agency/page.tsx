@@ -70,6 +70,14 @@ export default function AgencyPortal() {
   const [session, setSession] = useState<SessionUser | null>(null);
 
   useEffect(() => { verifySession().then((u) => setSession(u)); }, []);
+  // Returning from a QuickBooks (Intuit) OAuth redirect? Open Money so the
+  // QuickBooksCard mounts and completes the token exchange.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("code") && q.get("realmId")) setActive("money");
+    }
+  }, []);
   const role = session?.role;
   const isOwner = role === "agency_admin" || role === "agency_coord";
   const isManager = role === "manager";

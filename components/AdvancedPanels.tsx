@@ -215,7 +215,25 @@ export function QuickBooksCard() {
   const [qb, setQb] = useState<{ connected: boolean } | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { apiPost("/api/quickbooks", { action: "status" }).then(setQb).catch(() => setQb({ connected: false })); }, []);
+  useEffect(() => {
+    (async () => {
+      // Intuit redirects back to /agency/?code=…&realmId=…&state=… after the
+      // agency authorizes. Trade the code for tokens, then clean the URL.
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code"); const realmId = params.get("realmId");
+        if (code && realmId) {
+          setBusy(true); setNote("Finishing QuickBooks connection…");
+          const r = await apiPost("/api/quickbooks", { action: "exchange", code, realmId }).catch(() => ({ ok: false } as Row));
+          window.history.replaceState({}, "", window.location.pathname);
+          setBusy(false);
+          setNote(r?.ok ? "QuickBooks connected." : (r?.note || "Couldn't finish connecting QuickBooks."));
+        }
+      }
+      const s = await apiPost("/api/quickbooks", { action: "status" }).catch(() => ({ connected: false }));
+      setQb(s);
+    })();
+  }, []);
   async function connect() { try { const d = await apiPost("/api/quickbooks", { action: "connect" }); if (d.url) window.location.href = d.url; else { setNote("QuickBooks connected (demo)."); setQb({ connected: true }); } } catch (e) { setNote(e instanceof Error ? e.message : ""); } }
   async function sync() { setBusy(true); try { const d = await apiPost("/api/quickbooks", { action: "sync" }); setNote(d.synced != null ? `Synced ${d.synced} invoice(s) to QuickBooks.` : (d.note || "")); } finally { setBusy(false); } }
   return (
