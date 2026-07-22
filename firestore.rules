@@ -7,9 +7,15 @@ service cloud.firestore {
     function myDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
     function myTenant() { return myDoc().tenantId; }
     function myRole() { return myDoc().role; }
+    // Active = not awaiting approval. A self-joined manager is created "pending"
+    // and must be activated by the owner before gaining any agency privilege —
+    // without this check anyone could self-provision a pending manager of a victim
+    // tenant (join codes are semi-public) and read/write all its data. Owners have
+    // no status field, so a missing status defaults to active.
+    function isActive() { return myDoc().get('status', 'active') == 'active'; }
     // Agency-side staff who operate the console: Owner, coordinator, and Manager.
     // (Manager abilities are further gated per-manager in the app.)
-    function isAgency() { return signedIn() && (myRole() == 'agency_admin' || myRole() == 'agency_coord' || myRole() == 'manager'); }
+    function isAgency() { return signedIn() && isActive() && (myRole() == 'agency_admin' || myRole() == 'agency_coord' || myRole() == 'manager'); }
     // The agency Owner only — manages the team (approve/permission managers & staff).
     function isOwner() { return signedIn() && myRole() == 'agency_admin'; }
     // Care Royal platform super-admin, recognized by login email (no tenant/users doc).
@@ -80,8 +86,16 @@ service cloud.firestore {
       // error for a super-admin, who has no users/{uid} doc). Super-admin also
       // needs list access for the approval console.
       allow read: if isSuper() || (signedIn() && myTenant() == tid);
-      allow create: if signedIn();      // first admin creates their tenant (setup)
-      allow update: if isSuper() || (isAgency() && myTenant() == tid);
+      // New agencies are always waitlisted; only the super-admin can create an active one.
+      allow create: if isSuper() || (signedIn() && request.resource.data.get('status', '') == 'pending');
+      // Owner-only edits (not managers), and the payment/connection fields are
+      // server-written (Cloud Functions, Admin SDK) — freeze them against any client
+      // write so a member can't redirect family payments to their own Stripe account.
+      allow update: if isSuper() || (isOwner() && myTenant() == tid
+        && request.resource.data.get('stripeAccountId', '') == resource.data.get('stripeAccountId', '')
+        && request.resource.data.get('qboConnected', false) == resource.data.get('qboConnected', false)
+        && request.resource.data.get('payrollProvider', '') == resource.data.get('payrollProvider', '')
+        && request.resource.data.get('status', '') == resource.data.get('status', ''));
       allow delete: if false;
     }
 
@@ -95,8 +109,9 @@ service cloud.firestore {
     // join an existing agency at signup (before they have a profile). Contains
     // no sensitive data (tenantId + agency display name only).
     match /joinCodes/{code} {
-      allow read: if true;
-      allow create: if signedIn();      // agency admin mints its code at signup
+      allow get: if true;                // single-code lookup at signup only…
+      allow list: if false;              // …never enumerate every tenant's code
+      allow create: if signedIn();       // agency admin mints its code at signup
       allow update, delete: if false;
     }
 
@@ -172,10 +187,25 @@ service cloud.firestore {
     }
     match /caregiverProfiles/{id} {
       allow read: if sameTenantR();
-      // Only the agency, or the caregiver editing their OWN profile, may write —
-      // not other tenant members (e.g. a family) touching caregiver credentials.
-      allow create, update: if sameTenantW() && (
-        isAgency() || request.resource.data.userId == request.auth.uid
+      // Agency may write anything. A caregiver may create/edit only their OWN
+      // profile but may NOT set pay/vetting/payout fields — rate, bgCheckStatus,
+      // bgCheckId, stripeAccountId, pin are agency/server-controlled (otherwise a
+      // caregiver could inflate their own pay or self-clear a background check).
+      allow create: if sameTenantW() && (
+        isAgency() || (request.resource.data.userId == request.auth.uid
+          && request.resource.data.get('rate', '') == ''
+          && request.resource.data.get('bgCheckStatus', '') == ''
+          && request.resource.data.get('bgCheckId', '') == ''
+          && request.resource.data.get('stripeAccountId', '') == ''
+          && request.resource.data.get('pin', '') == '')
+      );
+      allow update: if sameTenantW() && (
+        isAgency() || (request.resource.data.userId == request.auth.uid
+          && request.resource.data.get('rate', '') == resource.data.get('rate', '')
+          && request.resource.data.get('bgCheckStatus', '') == resource.data.get('bgCheckStatus', '')
+          && request.resource.data.get('bgCheckId', '') == resource.data.get('bgCheckId', '')
+          && request.resource.data.get('stripeAccountId', '') == resource.data.get('stripeAccountId', '')
+          && request.resource.data.get('pin', '') == resource.data.get('pin', ''))
       );
     }
 
@@ -251,7 +281,12 @@ service cloud.firestore {
     // Item 2: instant-pay payouts. Caregiver creates own; agency sees all; server completes.
     match /payouts/{id} {
       allow read: if sameTenantR();
-      allow create: if signedIn() && sameTenantW() && request.resource.data.caregiverId == request.auth.uid;
+      // Caregiver requests their own payout, always as "pending". The transfer amount
+      // is recomputed and capped server-side (instantPayout) — the gross/net written
+      // here are advisory only and get overwritten on completion.
+      allow create: if signedIn() && sameTenantW()
+        && request.resource.data.caregiverId == request.auth.uid
+        && request.resource.data.get('status', '') == 'pending';
       allow update: if isAgency() && sameTenantR();
       allow delete: if false;
     }

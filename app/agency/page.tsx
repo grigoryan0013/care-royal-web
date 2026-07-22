@@ -12,6 +12,7 @@ import { GrowthPanel, QuickBooksCard } from "../../components/AdvancedPanels";
 import { apiGet, apiPost, signOutAndRedirect, verifySession, MANAGER_PERMISSION_KEYS, type SessionUser } from "../lib/session";
 import { storage } from "../lib/firebase";
 import { ref as sref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { PAYMENT_LINKS, planByKey } from "../lib/plans";
 
 const nav: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -1037,12 +1038,23 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
     <div className="space-y-6">
       {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
 
-      <div className="card flex items-center justify-between">
+      <div className="card flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-serif text-lg text-ink">Your The Care Royal plan</h3>
           <p className="mt-1 text-sm text-ink-light">Billing for your Care Royal subscription is handled by The Care Royal. You keep 100% of client payments minus card fees.</p>
         </div>
-        <span className="badge-brand capitalize">{plan || "trial"}</span>
+        <div className="flex items-center gap-3">
+          {(() => {
+            const link = PAYMENT_LINKS[plan || ""] || "";
+            const p = planByKey(plan || "");
+            return link ? (
+              <a href={link} target="_blank" rel="noopener noreferrer" className="btn-primary btn-sm">
+                {p ? `Activate ${p.name} — $${p.price}/mo` : "Activate subscription"}
+              </a>
+            ) : null;
+          })()}
+          <span className="badge-brand capitalize">{plan || "trial"}</span>
+        </div>
       </div>
 
       <div className="card">

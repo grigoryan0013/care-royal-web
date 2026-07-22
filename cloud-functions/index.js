@@ -282,19 +282,36 @@ exports.instantPayout = onCall({ secrets: [STRIPE_SECRET_KEY] }, async (request)
   if (!isAgency && p.caregiverId !== uid) throw new HttpsError("permission-denied", "Not your payout.");
   // Idempotency: never transfer a payout that is already paid (guards double-cash-out).
   if (p.status === "paid") return { ok: true, alreadyPaid: true };
-  // Amount is derived from the stored payout — NEVER trusted from the client. A
-  // client-supplied amount let a caller drain the Stripe balance with an arbitrary value.
-  // Caregiver receives net (gross minus the instant-payout fee recorded on the payout).
-  const amount = Math.round((parseFloat(p.net || p.gross) || 0) * 100);
-  if (amount <= 0) throw new HttpsError("failed-precondition", "Nothing to pay out.");
   const cgId = p.caregiverId;
-  const profSnap = await db.collection("caregiverProfiles").where("userId", "==", cgId).limit(1).get();
+  // The payout doc's gross/net are written by the CLIENT (firestore.rules only checks
+  // caregiverId), so they cannot be trusted — a forged doc with a huge gross would
+  // otherwise drain the Stripe balance. Recompute the caregiver's true available
+  // balance server-side (completed-shift earnings minus every non-failed payout other
+  // than this one) and cap the transfer to it.
+  const FEE = 1.99; // instant-pay fee (agency revenue) — kept, caregiver receives net
+  const [profSnap, shiftSnap, poSnap] = await Promise.all([
+    db.collection("caregiverProfiles").where("userId", "==", cgId).limit(1).get(),
+    db.collection("shifts").where("tenantId", "==", tenantId).where("caregiverId", "==", cgId).where("status", "==", "completed").get(),
+    db.collection("payouts").where("tenantId", "==", tenantId).where("caregiverId", "==", cgId).get(),
+  ]);
+  const rate = profSnap.empty ? 0 : (parseFloat(profSnap.docs[0].data().rate) || 0);
+  const hrs = (s) => (s.clockIn && s.clockOut ? Math.max(0, (new Date(s.clockOut).getTime() - new Date(s.clockIn).getTime()) / 3600000) : 0);
+  const accrued = shiftSnap.docs.reduce((a, d) => a + rate * (hrs(d.data()) || 1), 0);
+  const paidOut = poSnap.docs.filter((d) => d.id !== payoutId && d.data().status !== "failed").reduce((a, d) => a + (parseFloat(d.data().gross) || 0), 0);
+  const available = Math.round((accrued - paidOut) * 100) / 100;
+  const requested = parseFloat(p.gross) || available; // honor a partial cash-out, but never exceed available
+  const gross = Math.min(Math.max(0, requested), available);
+  if (gross < 1) throw new HttpsError("failed-precondition", "Nothing available to pay out.");
+  const net = Math.round((gross - FEE) * 100) / 100;
+  if (net <= 0) throw new HttpsError("failed-precondition", "Amount is below the instant-pay fee.");
+  const amount = Math.round(net * 100); // caregiver receives net
   const acct = profSnap.empty ? "" : profSnap.docs[0].data().stripeAccountId;
   if (!acct) return { ok: false, pending: true, note: "Caregiver has not connected a payout destination yet." };
   try {
     const transfer = await stripe().transfers.create({ amount, currency: "usd", destination: acct, metadata: { payoutId, tenantId } });
     await stripe().payouts.create({ amount, currency: "usd", method: "instant" }, { stripeAccount: acct }).catch(() => {});
-    await db.doc(`payouts/${payoutId}`).set({ status: "paid", stripeId: transfer.id }, { merge: true });
+    // Overwrite the client-supplied amounts with the server-verified ones.
+    await db.doc(`payouts/${payoutId}`).set({ status: "paid", stripeId: transfer.id, gross: gross.toFixed(2), fee: FEE.toFixed(2), net: net.toFixed(2) }, { merge: true });
     return { ok: true };
   } catch (e) {
     await db.doc(`payouts/${payoutId}`).set({ status: "pending" }, { merge: true });
@@ -433,9 +450,12 @@ exports.quickbooksSync = onCall({ secrets: [INTUIT_CLIENT_ID, INTUIT_CLIENT_SECR
   await sref.set({ qboAccessToken: token, ...(tok.refresh_token ? { qboRefreshToken: tok.refresh_token } : {}) }, { merge: true });
   const invSnap = await db.collection("invoices").where("tenantId", "==", tenantId).where("status", "==", "unpaid").get();
   // Push each unpaid invoice as a QuickBooks Invoice (best-effort; skips on error).
+  // Skip any invoice already pushed (qboSynced) — otherwise every re-sync would
+  // re-POST the same unpaid invoices and duplicate them in QuickBooks.
   let synced = 0;
   for (const doc of invSnap.docs) {
     const inv = doc.data();
+    if (inv.qboSynced) continue;
     const r = await fetch(`${QBO_API_BASE}/v3/company/${realmId}/invoice`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },

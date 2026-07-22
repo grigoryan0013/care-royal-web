@@ -220,7 +220,9 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     if (method === "GET") return { profile: pr || { userId: m.uid, credentials: "", credentialExpiry: "", rate: "", bio: "", availability: "" } };
     if (!pr) pr = await create("caregiverProfiles", "profileId", { tenantId: T, userId: m.uid, credentials: "", rate: "", bio: "", availability: "", credentialExpiry: "", createdAt: now() });
     const patch: Row = {};
-    for (const k of ["credentials", "credentialExpiry", "rate", "bio", "availability", "pin"]) if (k in body) patch[k] = String(body[k]);
+    // Caregivers may edit only their own bio/credentials/availability. rate, pin,
+    // and vetting fields are agency/server-controlled (enforced in firestore.rules).
+    for (const k of ["credentials", "credentialExpiry", "bio", "availability"]) if (k in body) patch[k] = String(body[k]);
     await update("caregiverProfiles", pr._id || pr.profileId, patch);
     return ok();
   }
