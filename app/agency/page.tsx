@@ -13,6 +13,7 @@ import { apiGet, apiPost, signOutAndRedirect, verifySession, MANAGER_PERMISSION_
 import { storage } from "../lib/firebase";
 import { ref as sref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { PAYMENT_LINKS, planByKey } from "../lib/plans";
+import { calculateStub, perYear, FREQUENCIES } from "../lib/tax";
 
 const nav: NavItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
@@ -196,7 +197,7 @@ export default function AgencyPortal() {
       {view === "documents" && can("documents") && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
       {view === "leads" && can("leads") && <Leads />}
       {view === "money" && can("money") && <Money plan={tenant?.plan} clients={clients} services={services} tenant={tenant} onChange={load} />}
-      {isOwner && view === "payroll" && <Payroll onGo={setActive} />}
+      {isOwner && view === "payroll" && <Payroll onGo={setActive} agencyName={tenant?.name || "Your agency"} />}
       {/* Owner-only sections */}
       {isOwner && view === "team" && <Team flash={flash} />}
       {isOwner && view === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
@@ -1399,10 +1400,32 @@ function InvoiceBuilder({ inv, clients, services, agencyName, onClose, onSaved }
 }
 
 // ---------------------------------------------------------------- payroll
-function Payroll({ onGo }: { onGo: (k: string) => void }) {
+// Branded, printable paystub (in-app payroll, real 2025 tax math) — no jsPDF.
+function printPaystub(row: PayRow, freq: string, agencyName: string) {
+  const annual = row.gross * perYear(freq);
+  const stub = calculateStub({ annual, freq, periodNumber: 1 });
+  const money = (n: number) => "$" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const taxRows = stub.taxes.map((t) => `<tr><td>${t.label}</td><td style="text-align:right">-${money(t.current)}</td></tr>`).join("");
+  const freqLabel = FREQUENCIES.find((f) => f.key === freq)?.label || freq;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Paystub — ${row.name}</title>
+  <style>body{font-family:Inter,Arial,sans-serif;color:#14181B;max-width:640px;margin:32px auto;padding:0 20px}
+  h1{font-size:22px;margin:0}table{width:100%;border-collapse:collapse;margin-top:16px}td{padding:8px 10px;border-bottom:1px solid #E0E3E7;font-size:14px}
+  .hd{border-left:6px solid #4B39EF;padding:4px 0 4px 16px;margin-bottom:12px}
+  .net{display:flex;justify-content:space-between;margin-top:14px;font-weight:800;font-size:18px;color:#4B39EF}</style></head>
+  <body><div class="hd"><h1 style="color:#4B39EF">${agencyName}</h1><div style="color:#666">Earnings statement · ${freqLabel} · estimate</div></div>
+  <div style="color:#57636C;font-size:13px">Employee: <b style="color:#14181B">${row.name}</b> · ${row.shifts} shifts · ${row.hours}h</div>
+  <table><tr><td><b>Gross pay</b></td><td style="text-align:right"><b>${money(stub.gross.current)}</b></td></tr>${taxRows}</table>
+  <div class="net"><span>Net pay</span><span>${money(stub.net)}</span></div>
+  <p style="margin-top:24px;color:#8b95a1;font-size:11px">Estimated withholdings using 2025 federal + CA tables. For guidance only; confirm with your payroll provider before issuing pay.</p>
+  <script>window.onload=function(){window.print()}</script></body></html>`;
+  const w = window.open("", "_blank"); if (w) { w.document.write(html); w.document.close(); }
+}
+
+function Payroll({ onGo, agencyName }: { onGo: (k: string) => void; agencyName: string }) {
   const [pay, setPay] = useState<{ rows: PayRow[]; total: number; backboneReady: boolean; provider?: string }>({ rows: [], total: 0, backboneReady: false });
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
+  const [freq, setFreq] = useState("weekly");
   const load = useCallback(async () => {
     const pr = await apiGet("/api/payroll").catch(() => ({ rows: [], total: 0, backboneReady: false }));
     setPay({ rows: pr.rows || [], total: pr.total || 0, backboneReady: !!pr.backboneReady, provider: pr.provider || "" });
@@ -1422,54 +1445,75 @@ function Payroll({ onGo }: { onGo: (k: string) => void }) {
   }, [load]);
   async function connectPayroll(provider: string) {
     setBusy("payroll");
-    try { const d = await apiPost("/api/payroll", { action: "connect_payroll", provider }); if (d.url) window.location.href = d.url; else { setNote(provider === "gusto" ? "Payroll connected via Gusto." : "The Care Royal Payroll enabled."); load(); } }
+    try { const d = await apiPost("/api/payroll", { action: "connect_payroll", provider }); if (d.url) window.location.href = d.url; else { setNote(provider === "gusto" ? "Payroll connected via Gusto." : "In-app payroll enabled."); load(); } }
     catch (e) { setNote(e instanceof Error ? e.message : "Failed"); } finally { setBusy(""); }
   }
-  async function runPayroll() { setBusy("run"); try { const d = await apiPost("/api/payroll", { action: "run" }); setNote(d.note || (d.ok ? "Payroll run." : "")); } finally { setBusy(""); } }
+
+  // Estimated net across everyone for the chosen frequency (real 2025 tax math).
+  const withNet = pay.rows.map((r) => { const s = calculateStub({ annual: r.gross * perYear(freq), freq, periodNumber: 1 }); return { ...r, net: s.net, tax: r.gross - s.net }; });
+  const totalNet = withNet.reduce((a, r) => a + r.net, 0);
 
   return (
     <div className="space-y-6">
       {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
-      <div className="card">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-serif text-lg font-bold text-ink">Payroll</h3>
-          {pay.backboneReady && <button onClick={runPayroll} disabled={busy === "run"} className="btn-primary btn-sm">{busy === "run" ? "…" : "Run payroll"}</button>}
-        </div>
-        {!pay.backboneReady ? (
-          <div className="mb-4 space-y-3">
-            <p className="text-sm text-ink-mid">Choose how you run payroll. The Care Royal never holds your funds — gross pay below comes from your timesheets.</p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-rule bg-paper p-4">
-                <div className="font-semibold text-ink">The Care Royal Payroll</div>
-                <p className="mt-1 text-xs text-ink-light">Branded paystubs, verification letters and receipts in-app — with real tax math. No external account.</p>
-                <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-gradient btn-sm mt-3">Use in-app payroll</button>
-              </div>
-              <div className="rounded-xl border border-rule bg-paper p-4">
-                <div className="font-semibold text-ink">Connect Gusto</div>
-                <p className="mt-1 text-xs text-ink-light">Bring your own Gusto for full-service payroll, direct deposit and tax filing under your agency.</p>
-                <button onClick={() => connectPayroll("gusto")} disabled={busy === "payroll"} className="btn-ghost btn-sm mt-3">Connect Gusto</button>
-              </div>
+
+      {/* Provider setup */}
+      {!pay.backboneReady ? (
+        <div className="card space-y-3">
+          <div><h3 className="font-serif text-lg font-bold text-ink">Set up payroll</h3><p className="mt-1 text-sm text-ink-light">Pay your team from the same timesheets. The Care Royal never holds your funds.</p></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border-2 border-brand p-4">
+              <span className="icon-badge"><Icon name="documents" /></span>
+              <div className="mt-3 font-semibold text-ink">In-app payroll</div>
+              <p className="mt-1 text-xs text-ink-light">Branded paystubs with real 2025 tax math, verification letters and receipts — no external account.</p>
+              <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-gradient btn-sm mt-3">Use in-app payroll</button>
+            </div>
+            <div className="rounded-xl border border-rule p-4">
+              <span className="icon-badge"><Icon name="pay" /></span>
+              <div className="mt-3 font-semibold text-ink">Connect Gusto</div>
+              <p className="mt-1 text-xs text-ink-light">Your own Gusto for full-service payroll, direct deposit and tax filing under your agency.</p>
+              <button onClick={() => connectPayroll("gusto")} disabled={busy === "payroll"} className="btn-ghost btn-sm mt-3">Connect Gusto</button>
             </div>
           </div>
-        ) : pay.provider === "gusto" ? (
-          <p className="mb-3 text-sm text-ok">Payroll connected via Gusto. Gross pay below syncs to your account.</p>
-        ) : (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-ok/10 px-3 py-2">
-            <span className="text-sm text-ok">In-app payroll is on. Create paystubs & pay documents in the Document Studio.</span>
-            <button onClick={() => onGo("documents")} className="btn-soft btn-sm">Open Document Studio</button>
+        </div>
+      ) : pay.provider === "gusto" ? (
+        <div className="card flex items-center gap-2"><span className="stat-dot bg-ok" /><p className="text-sm text-ok">Payroll connected via Gusto — gross pay below syncs to your account.</p></div>
+      ) : (
+        <div className="card flex items-center gap-2"><span className="stat-dot bg-ok" /><p className="text-sm text-ok">In-app payroll is on. Generate paystubs below or in the Document Studio.</p></div>
+      )}
+
+      {/* Pay run */}
+      <div className="card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-serif text-lg font-bold text-ink">This pay run</h3>
+          <label className="flex items-center gap-2 text-sm text-ink-mid">Pay frequency
+            <select className="field field-sm !w-auto" value={freq} onChange={(e) => setFreq(e.target.value)}>{FREQUENCIES.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>
+          </label>
+        </div>
+        {withNet.length === 0 && <p className="text-sm text-ink-light">No completed shifts to pay yet. Completed shifts from the schedule feed payroll automatically.</p>}
+        {withNet.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs uppercase tracking-wide text-ink-light"><th className="pb-2">Caregiver</th><th className="pb-2 text-right">Hours</th><th className="pb-2 text-right">Gross</th><th className="pb-2 text-right">Est. tax</th><th className="pb-2 text-right">Est. net</th><th className="pb-2"></th></tr></thead>
+              <tbody>
+                {withNet.map((r) => (
+                  <tr key={r.userId} className="border-t border-rule">
+                    <td className="py-2 font-medium text-ink">{r.name}<span className="block text-xs font-normal text-ink-light">{r.shifts} shifts</span></td>
+                    <td className="py-2 text-right text-ink-mid">{r.hours}h</td>
+                    <td className="py-2 text-right text-ink">${r.gross.toFixed(2)}</td>
+                    <td className="py-2 text-right text-ink-light">-${r.tax.toFixed(2)}</td>
+                    <td className="py-2 text-right font-semibold text-ink">${r.net.toFixed(2)}</td>
+                    <td className="py-2 text-right"><button onClick={() => printPaystub(r, freq, agencyName)} className="text-xs font-semibold text-brand">Paystub</button></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="border-t border-rule-dark font-semibold text-ink"><td className="pt-3">Totals</td><td></td><td className="pt-3 text-right">${pay.total.toFixed(2)}</td><td className="pt-3 text-right text-ink-light">-${(pay.total - totalNet).toFixed(2)}</td><td className="pt-3 text-right">${totalNet.toFixed(2)}</td><td></td></tr></tfoot>
+            </table>
           </div>
         )}
-        {pay.rows.length === 0 && <p className="text-sm text-ink-light">No completed shifts to pay yet.</p>}
-        <div className="space-y-2">
-          {pay.rows.map((r) => (
-            <div key={r.userId} className="flex items-center justify-between border-b border-rule pb-2 text-sm last:border-0">
-              <div className="text-ink">{r.name} <span className="text-ink-light">· {r.shifts} shifts · {r.hours}h</span></div>
-              <div className="font-medium text-ink">${r.gross.toFixed(2)}</div>
-            </div>
-          ))}
-        </div>
-        {pay.rows.length > 0 && <div className="mt-3 flex items-center justify-between border-t border-rule-dark pt-3 text-sm font-semibold text-ink"><span>Total gross</span><span>${pay.total.toFixed(2)}</span></div>}
+        <p className="mt-3 text-xs text-ink-light">Net is an estimate using 2025 federal + CA tables. {pay.provider === "gusto" ? "Gusto issues the actual payments." : "Confirm before issuing pay."} You can also build detailed paystubs in <button onClick={() => onGo("documents")} className="font-semibold text-brand">Documents</button>.</p>
       </div>
+
       <QuickBooksCard />
     </div>
   );
