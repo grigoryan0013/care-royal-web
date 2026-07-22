@@ -339,11 +339,31 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       return { bookings: enriched };
     }
     if (body.action === "create") {
-      const hh = households.filter((h) => h.primaryUserId === m.uid)[0];
-      if (!hh) return { error: "set up your household first" };
+      const isAgency = m.role === "agency_admin" || m.role === "agency_coord" || m.role === "manager";
+      // Family books for their own household; agency schedules for any client (care.com-style).
+      let householdId = String(body.householdId || "");
+      if (!isAgency) {
+        const hh = households.filter((h) => h.primaryUserId === m.uid)[0];
+        if (!hh) return { error: "set up your household first" };
+        householdId = hh.householdId;
+      } else if (!householdId && body.recipientId) {
+        householdId = byId(recipients, "recipientId", body.recipientId)?.householdId || "";
+      }
+      if (!householdId) return { error: "choose a client for this appointment" };
       const recurrence = body.recurrence === "weekly" ? "weekly" : "none";
       const occurrences = recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(String(body.occurrences || 4)) || 4)) : 1;
-      await create("bookings", "bookingId", { tenantId: T, householdId: hh.householdId, recipientId: body.recipientId, serviceId: body.serviceId, requestedBy: m.uid, status: "requested", start: body.start, end: body.end || "", recurrence, occurrences: String(occurrences), caregiverId: "", notes: body.notes || "", createdAt: now() });
+      // Agency-created appointments are scheduled immediately (with shifts); family requests await approval.
+      const status = isAgency ? "scheduled" : "requested";
+      const caregiverId = isAgency ? String(body.caregiverId || "") : "";
+      const bk = await create("bookings", "bookingId", { tenantId: T, householdId, recipientId: body.recipientId, serviceId: body.serviceId, requestedBy: m.uid, status, start: body.start, end: body.end || "", recurrence, occurrences: String(occurrences), caregiverId, notes: body.notes || "", createdAt: now() });
+      if (isAgency) {
+        const base = body.start ? new Date(body.start) : null;
+        for (let i = 0; i < occurrences; i++) {
+          const start = base ? new Date(base.getTime() + i * 7 * 864e5).toISOString() : (body.start || "");
+          await create("shifts", "shiftId", { tenantId: T, bookingId: bk.bookingId, caregiverId, start, end: body.end || "", status: caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "", shiftCode: gen4() });
+        }
+        void logEvent(`Scheduled appointment · ${occurrences > 1 ? occurrences + " weekly shifts" : "1 shift"}`);
+      }
       return ok();
     }
     if (body.action === "approve") {

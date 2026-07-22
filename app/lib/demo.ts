@@ -247,7 +247,21 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     return { bookings: enriched };
   }
   if (p === "/api/bookings" && method === "POST") {
-    if (body.action === "create") { const hh = myHouseholds()[0]; const recurrence = body.recurrence === "weekly" ? "weekly" : "none"; const occurrences = recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(String(body.occurrences || 4)) || 4)) : 1; const b = { bookingId: id("bk"), tenantId: IDS.tenant, householdId: hh.householdId, recipientId: String(body.recipientId), serviceId: String(body.serviceId), requestedBy: me.userId, status: "requested", start: String(body.start), end: "", recurrence, occurrences: String(occurrences), caregiverId: "", notes: String(body.notes || ""), createdAt: now() }; db.Bookings.push(b); write(db); return { ok: true }; }
+    if (body.action === "create") {
+      const isAgency = me.role === "agency_admin" || me.role === "agency_coord" || me.role === "manager";
+      let householdId = String(body.householdId || "");
+      if (!isAgency) { const hh = myHouseholds()[0]; householdId = hh.householdId; }
+      else if (!householdId && body.recipientId) { householdId = db.Recipients.find((r) => r.recipientId === body.recipientId)?.householdId || ""; }
+      if (!householdId) return { error: "choose a client for this appointment" };
+      const recurrence = body.recurrence === "weekly" ? "weekly" : "none";
+      const occurrences = recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(String(body.occurrences || 4)) || 4)) : 1;
+      const status = isAgency ? "scheduled" : "requested";
+      const caregiverId = isAgency ? String(body.caregiverId || "") : "";
+      const b = { bookingId: id("bk"), tenantId: IDS.tenant, householdId, recipientId: String(body.recipientId), serviceId: String(body.serviceId), requestedBy: me.userId, status, start: String(body.start), end: "", recurrence, occurrences: String(occurrences), caregiverId, notes: String(body.notes || ""), createdAt: now() };
+      db.Bookings.push(b);
+      if (isAgency) { const base = body.start ? new Date(String(body.start)) : null; for (let i = 0; i < occurrences; i++) { const start = base ? new Date(base.getTime() + i * 7 * 864e5).toISOString() : String(body.start); db.Shifts.push({ shiftId: id("sh"), tenantId: IDS.tenant, bookingId: b.bookingId, caregiverId, start, end: "", status: caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" }); } }
+      write(db); return { ok: true };
+    }
     if (body.action === "approve") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) { b.status = "scheduled"; b.caregiverId = String(body.caregiverId || ""); const occ = b.recurrence === "weekly" ? Math.min(26, Math.max(1, parseInt(b.occurrences || "1") || 1)) : 1; const base = b.start ? new Date(b.start) : null; for (let i = 0; i < occ; i++) { const start = base ? new Date(base.getTime() + i * 7 * 864e5).toISOString() : b.start; db.Shifts.push({ shiftId: id("sh"), tenantId: IDS.tenant, bookingId: b.bookingId, caregiverId: b.caregiverId, start, end: "", status: b.caregiverId ? "scheduled" : "open", clockIn: "", clockOut: "", gpsIn: "", gpsOut: "", notes: "" }); } } write(db); return ok(); }
     if (body.action === "decline") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) b.status = "declined"; write(db); return ok(); }
     if (body.action === "assign") { const b = db.Bookings.find((x) => x.bookingId === body.bookingId); if (b) b.caregiverId = String(body.caregiverId || ""); const sh = db.Shifts.find((s) => s.bookingId === body.bookingId); if (sh) { sh.caregiverId = String(body.caregiverId || ""); sh.status = body.caregiverId ? "scheduled" : "open"; } write(db); return ok(); }

@@ -32,7 +32,7 @@ const nav: NavItem[] = [
 
 const SECTION_INTRO: Record<string, string> = {
   dashboard: "Your agency at a glance — what needs attention today.",
-  schedule: "Every booking on one calendar. Click any booking to approve, assign a caregiver, reschedule or cancel.",
+  schedule: "Month, week and day views. Click an empty slot to book an appointment, drag one to reschedule, or click a booking to assign, approve or cancel.",
   clients: "The households you serve and the people, pets and homes under their care.",
   staff: "Your caregivers. Share your agency code so they can join and see their shifts.",
   services: "Your service menu and rates. Families can only book what you switch on here.",
@@ -189,7 +189,7 @@ export default function AgencyPortal() {
       {msg && <p className="mb-4 rounded-lg bg-ok/10 px-3 py-2 text-sm text-ok">{msg}</p>}
 
       {view === "dashboard" && <Dashboard tenant={tenant} services={services} bookings={bookings} shifts={shifts} invoices={invoices} clients={clients} caregivers={caregivers} leadCount={leadCount} onGo={setActive} />}
-      {view === "schedule" && can("schedule") && <Schedule bookings={bookings} caregivers={caregivers} shifts={shifts} onChange={() => { load(); flash("Schedule updated."); }} />}
+      {view === "schedule" && can("schedule") && <Schedule bookings={bookings} caregivers={caregivers} shifts={shifts} clients={clients} services={services} onChange={() => { load(); flash("Schedule updated."); }} />}
       {view === "clients" && can("clients") && <Clients clients={clients} caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Client updated."); }} />}
       {view === "staff" && can("staff") && <Staff caregivers={caregivers} joinCode={tenant?.joinCode} onChange={() => { load(); flash("Caregiver updated."); }} />}
       {view === "messages" && can("messages") && <MessagesPanel />}
@@ -496,9 +496,10 @@ function Dashboard({ tenant, services, bookings, shifts, invoices, clients, care
 }
 
 // ---------------------------------------------------------------- schedule (merged calendar + bookings + approvals)
-function Schedule({ bookings, caregivers, shifts, onChange }: { bookings: Booking[]; caregivers: Caregiver[]; shifts: Shift[]; onChange: () => void }) {
+function Schedule({ bookings, caregivers, shifts, clients, services, onChange }: { bookings: Booking[]; caregivers: Caregiver[]; shifts: Shift[]; clients: Client[]; services: Service[]; onChange: () => void }) {
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [selId, setSelId] = useState<string | null>(null);
+  const [createAt, setCreateAt] = useState<string | null>(null);
   const pending = bookings.filter((b) => b.status === "requested");
   const live = bookings.filter((b) => b.status !== "declined" && b.status !== "cancelled");
   const selected = bookings.find((b) => b.bookingId === selId) || null;
@@ -538,11 +539,19 @@ function Schedule({ bookings, caregivers, shifts, onChange }: { bookings: Bookin
           <button onClick={() => setView("calendar")} className={view === "calendar" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Calendar</button>
           <button onClick={() => setView("list")} className={view === "list" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>List</button>
         </div>
-        {shifts.some((s) => s.status === "open") && <AutoAssign onChange={onChange} />}
+        <div className="flex items-center gap-2">
+          {shifts.some((s) => s.status === "open") && <AutoAssign onChange={onChange} />}
+          <button onClick={() => setCreateAt(defaultApptTime())} className="btn-gradient btn-sm">New appointment</button>
+        </div>
       </div>
 
       {view === "calendar" ? (
-        <CalendarView events={events} onSelect={setSelId} />
+        <CalendarView
+          events={events}
+          onSelect={setSelId}
+          onCreate={(iso) => setCreateAt(iso)}
+          onMove={async (id, iso) => { await apiPost("/api/bookings", { action: "reschedule", bookingId: id, start: iso }); onChange(); }}
+        />
       ) : (
         <div className="space-y-6">
           {Object.keys(groups).length === 0 && <div className="card"><p className="text-sm text-ink-light">No bookings yet. When a family requests care it appears here for approval.</p></div>}
@@ -566,7 +575,125 @@ function Schedule({ bookings, caregivers, shifts, onChange }: { bookings: Bookin
       )}
 
       <BookingDrawer booking={selected} caregivers={caregivers} shifts={shifts} onClose={() => setSelId(null)} onChange={() => { setSelId(null); onChange(); }} />
+      <NewApptDrawer open={!!createAt} start={createAt} clients={clients} services={services} caregivers={caregivers} onClose={() => setCreateAt(null)} onChange={() => { setCreateAt(null); onChange(); }} />
     </div>
+  );
+}
+
+// Next round hour, at least 1h out — a sensible default for a new appointment.
+function defaultApptTime(): string {
+  const d = new Date();
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  return d.toISOString();
+}
+
+// Agency-side "book an appointment" — pick client + service + time + caregiver.
+// Creates a scheduled booking (and shift) directly, like care.com scheduling.
+function NewApptDrawer({ open, start, clients, services, caregivers, onClose, onChange }: {
+  open: boolean; start: string | null; clients: Client[]; services: Service[]; caregivers: Caregiver[];
+  onClose: () => void; onChange: () => void;
+}) {
+  const [householdId, setHouseholdId] = useState("");
+  const [recipientId, setRecipientId] = useState("");
+  const [serviceId, setServiceId] = useState("");
+  const [when, setWhen] = useState("");
+  const [caregiverId, setCaregiverId] = useState("");
+  const [recurrence, setRecurrence] = useState("none");
+  const [occurrences, setOccurrences] = useState("4");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (open) { setWhen(toLocalInput(start || defaultApptTime())); setErr(""); }
+  }, [open, start]);
+
+  const household = clients.find((c) => c.householdId === householdId);
+  const recips = household?.recipients || [];
+
+  async function save() {
+    setErr("");
+    if (!householdId) { setErr("Choose a client."); return; }
+    if (!recipientId) { setErr("Choose who the care is for."); return; }
+    if (!serviceId) { setErr("Choose a service."); return; }
+    if (!when) { setErr("Pick a date and time."); return; }
+    setBusy(true);
+    try {
+      const r = await apiPost("/api/bookings", {
+        action: "create", householdId, recipientId, serviceId,
+        start: new Date(when).toISOString(), caregiverId,
+        recurrence, occurrences, notes,
+      });
+      if ((r as { error?: string })?.error) { setErr((r as { error: string }).error); return; }
+      onChange();
+    } finally { setBusy(false); }
+  }
+
+  if (!open) return null;
+  return (
+    <Drawer open={open} onClose={onClose} title="New appointment">
+      <div className="space-y-4">
+        <div>
+          <label className="label">Client</label>
+          <select className="field" value={householdId} onChange={(e) => { setHouseholdId(e.target.value); setRecipientId(""); }}>
+            <option value="">Select a client…</option>
+            {clients.map((c) => <option key={c.householdId} value={c.householdId}>{c.name}{c.city ? ` · ${c.city}` : ""}</option>)}
+          </select>
+          {clients.length === 0 && <p className="hint">Add a client first in the Clients tab.</p>}
+        </div>
+        <div>
+          <label className="label">Care recipient</label>
+          <select className="field" value={recipientId} onChange={(e) => setRecipientId(e.target.value)} disabled={!householdId}>
+            <option value="">{householdId ? "Select…" : "Choose a client first"}</option>
+            {recips.map((r) => <option key={r.recipientId} value={r.recipientId}>{r.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Service</label>
+          <select className="field" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+            <option value="">Select a service…</option>
+            {services.filter((s) => s.active !== "false").map((s) => <option key={s.serviceId} value={s.serviceId}>{s.name}</option>)}
+          </select>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label">Date & time</label>
+            <input type="datetime-local" className="field" value={when} onChange={(e) => setWhen(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Caregiver</label>
+            <select className="field" value={caregiverId} onChange={(e) => setCaregiverId(e.target.value)}>
+              <option value="">Unassigned</option>
+              {caregivers.map((c) => <option key={c.userId} value={c.userId}>{c.name || c.email}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label">Repeat</label>
+            <select className="field" value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
+              <option value="none">One-time</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </div>
+          {recurrence === "weekly" && (
+            <div>
+              <label className="label"># of weeks</label>
+              <input className="field" inputMode="numeric" value={occurrences} onChange={(e) => setOccurrences(e.target.value)} />
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="label">Notes (optional)</label>
+          <input className="field" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything the caregiver should know" />
+        </div>
+        {err && <div className="rounded-lg border-l-4 border-gold bg-gold/10 px-3.5 py-2.5 text-sm text-ink-mid">{err}</div>}
+      </div>
+      <div className="mt-6 flex gap-2">
+        <button onClick={save} disabled={busy} className="btn-gradient flex-1">{busy ? "Scheduling…" : "Schedule appointment"}</button>
+        <button onClick={onClose} className="btn-ghost">Cancel</button>
+      </div>
+    </Drawer>
   );
 }
 
