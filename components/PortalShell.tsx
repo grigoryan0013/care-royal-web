@@ -105,9 +105,10 @@ export default function PortalShell({
         <button
           key={n.key}
           onClick={() => { onNav(n.key); setDrawer(false); }}
-          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition ${
-            active === n.key ? "bg-brand text-white shadow-sm" : "text-ink-mid hover:bg-brand-light hover:text-brand"
+          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+            active === n.key ? "text-white shadow-brand" : "text-ink-mid hover:bg-brand-light hover:text-brand"
           }`}
+          style={active === n.key ? { background: "linear-gradient(120deg,#4B39EF,#673AB7)" } : undefined}
         >
           <Icon name={n.icon || "dashboard"} size={18} className="shrink-0" />
           {n.label}

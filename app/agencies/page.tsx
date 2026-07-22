@@ -85,24 +85,43 @@ export default function JoinAgency() {
   }
 
   return (
-    <main className="app-bg min-h-screen">
-      <header className="border-b border-rule bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-          <Link href="/login/" className="font-serif text-xl font-semibold text-ink">The Care Royal</Link>
-          <Link href="/login/" className="text-sm text-ink-light hover:text-ink">Agency sign in</Link>
+    <main className="min-h-screen bg-paper">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-brand-deep/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
+          <Link href="/" className="flex items-center gap-2 text-white">
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/15 font-serif text-lg font-bold">C</span>
+            <span className="font-serif text-lg font-bold tracking-tight">The Care Royal</span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/login/" className="rounded-xl px-3.5 py-2 text-sm font-semibold text-white/85 hover:text-white">Agency sign in</Link>
+            <a href="#signup" className="rounded-xl bg-white px-4 py-2 text-sm font-bold text-brand shadow-sm transition hover:shadow-pop">Start free</a>
+          </div>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="mx-auto max-w-6xl px-5 pt-14 pb-6 text-center">
-        <span className="badge badge-gold">For home-care agencies</span>
-        <h1 className="mx-auto mt-4 max-w-3xl font-serif text-4xl leading-tight text-ink sm:text-5xl">Run your entire agency in one place.</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-ink-light">Scheduling, caregivers, family bookings, care documents, payments and payroll — white-labeled under your agency&apos;s name. Start free for {TRIAL_DAYS} days. No card charged until your trial ends.</p>
-        <div className="mx-auto mt-8 grid max-w-4xl gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Hero — Flutter-landing gradient */}
+      <section className="hero-gradient relative overflow-hidden text-white">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-white/10 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-gold/20 blur-3xl" />
+        <div className="relative mx-auto max-w-6xl px-5 pt-16 pb-32 text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-white/90">For home-care agencies</span>
+          <h1 className="mx-auto mt-5 max-w-3xl font-serif text-4xl font-black leading-[1.08] tracking-tight sm:text-6xl">Run your entire agency<br className="hidden sm:block" /> in one place.</h1>
+          <p className="mx-auto mt-5 max-w-2xl text-base text-white/80 sm:text-lg">Scheduling, caregivers, family bookings, care documents, payments and payroll — white-labeled under your agency&apos;s name. The modern alternative to care.com, built for how agencies actually run.</p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <a href="#signup" className="rounded-xl bg-white px-6 py-3 text-base font-bold text-brand shadow-pop transition hover:-translate-y-0.5">Start {TRIAL_DAYS}-day free trial</a>
+            <a href="#pricing" className="rounded-xl border border-white/25 bg-white/5 px-6 py-3 text-base font-semibold text-white transition hover:bg-white/10">See plans</a>
+          </div>
+          <p className="mt-5 text-sm text-white/70">No card required · Your workspace is ready in under a minute</p>
+        </div>
+      </section>
+
+      {/* Benefit cards overlapping the hero */}
+      <section className="relative z-10 mx-auto -mt-20 max-w-6xl px-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {BENEFITS.map((b) => (
-            <div key={b.title} className="card text-left">
-              <span className="grid h-10 w-10 place-items-center rounded-lg bg-brand-light text-brand"><Icon name={b.icon} /></span>
-              <div className="mt-3 font-semibold text-ink">{b.title}</div>
+            <div key={b.title} className="card card-hover text-left">
+              <span className="icon-badge"><Icon name={b.icon} /></span>
+              <div className="mt-4 font-serif text-lg font-bold text-ink">{b.title}</div>
               <div className="mt-1 text-sm text-ink-light">{b.body}</div>
             </div>
           ))}
@@ -110,23 +129,34 @@ export default function JoinAgency() {
       </section>
 
       {/* Pricing */}
-      <section className="mx-auto max-w-6xl px-5 py-10">
-        <h2 className="text-center font-serif text-3xl text-ink">Simple, honest pricing</h2>
-        <p className="mt-2 text-center text-ink-light">Every plan includes a {TRIAL_DAYS}-day free trial. Cancel anytime.</p>
-        <div className="mt-8 grid gap-5 lg:grid-cols-3">
+      <section id="pricing" className="mx-auto max-w-6xl px-5 py-20">
+        <div className="text-center">
+          <span className="eyebrow">Pricing</span>
+          <h2 className="mt-4 font-serif text-3xl font-black tracking-tight text-ink sm:text-4xl">Simple, honest <span className="text-gradient">pricing</span></h2>
+          <p className="mt-3 text-ink-light">Every plan includes a {TRIAL_DAYS}-day free trial. Cancel anytime.</p>
+        </div>
+        <div className="mt-12 grid items-start gap-6 lg:grid-cols-3">
           {PLANS.map((p) => (
-            <div key={p.key} className={`card flex flex-col ${p.popular ? "ring-2 ring-brand" : ""}`}>
-              {p.popular && <span className="badge badge-brand mb-2 self-start">Most popular</span>}
-              <h3 className="font-serif text-2xl text-ink">{p.name}</h3>
+            <div key={p.key} className={`relative flex flex-col rounded-xl2 bg-white p-7 transition ${p.popular ? "border-2 border-brand shadow-brand lg:-mt-4 lg:pb-9" : "border border-rule shadow-card lift"}`}>
+              {p.popular && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-4 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-brand" style={{ background: "linear-gradient(120deg,#4B39EF,#673AB7)" }}>Most popular</span>
+              )}
+              <h3 className="font-serif text-xl font-bold text-ink">{p.name}</h3>
               <p className="mt-1 text-sm text-ink-light">{p.tagline}</p>
-              <div className="mt-4 flex items-baseline gap-1"><span className="font-serif text-4xl text-ink">${p.price}</span><span className="text-ink-light">/mo</span></div>
-              <div className="mt-1 text-sm font-medium text-ink-mid">{p.caregivers}</div>
-              <ul className="mt-5 flex-1 space-y-2">
+              <div className="mt-5 flex items-baseline gap-1">
+                <span className="font-serif text-5xl font-black tracking-tight text-ink">${p.price}</span>
+                <span className="text-ink-light">/mo</span>
+              </div>
+              <div className="mt-2 inline-flex w-fit rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink-mid">{p.caregivers}</div>
+              <ul className="mt-6 flex-1 space-y-3">
                 {p.features.map((f) => (
-                  <li key={f} className="flex gap-2 text-sm text-ink-mid"><Icon name="check" size={16} className="mt-0.5 shrink-0 text-ok" />{f}</li>
+                  <li key={f} className="flex gap-2.5 text-sm text-ink-mid">
+                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-check/15"><Icon name="check" size={13} className="text-check" /></span>
+                    {f}
+                  </li>
                 ))}
               </ul>
-              <button onClick={() => choosePlan(p.key)} className={`mt-6 w-full ${p.popular ? "btn-primary" : "btn-soft"}`}>Start {TRIAL_DAYS}-day free trial</button>
+              <button onClick={() => choosePlan(p.key)} className={`mt-7 w-full ${p.popular ? "btn-gradient btn-lg" : "btn-ghost btn-lg"}`}>Start free trial</button>
             </div>
           ))}
         </div>

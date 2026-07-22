@@ -4,7 +4,7 @@ import PortalShell, { type NavItem, type NotifItem } from "../../components/Port
 import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
 import Drawer from "../../components/Drawer";
-import Icon from "../../components/Icon";
+import Icon, { type IconName } from "../../components/Icon";
 import { BarChart, Donut } from "../../components/Charts";
 import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
@@ -412,20 +412,30 @@ function Dashboard({ tenant, services, bookings, shifts, invoices, clients, care
   const revenue = invoices.filter((i) => i.status === "paid" && new Date(i.createdAt) >= weekAgo).reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
   const outstanding = invoices.filter((i) => i.status === "unpaid").reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
 
-  const Stat = ({ label, val, go, tone = "brand" }: { label: string; val: string; go: string; tone?: string }) => (
-    <button onClick={() => onGo(go)} className="card card-hover text-left">
-      <div className={`text-3xl font-semibold ${tone === "ok" ? "text-ok" : tone === "gold" ? "text-gold-dark" : "text-brand"}`}>{val}</div>
-      <div className="mt-1 text-sm text-ink-mid">{label}</div>
+  const Stat = ({ label, val, go, tone = "brand", icon = "dashboard" }: { label: string; val: string; go: string; tone?: string; icon?: IconName }) => (
+    <button onClick={() => onGo(go)} className="stat-tile group">
+      <div className="flex items-center justify-between">
+        <span className="icon-badge"><Icon name={icon} size={18} /></span>
+        <Icon name="arrow" size={16} className="text-ink-light opacity-0 transition group-hover:opacity-100" />
+      </div>
+      <div>
+        <div className={`font-serif text-3xl font-black tracking-tight ${tone === "ok" ? "text-ok" : tone === "gold" ? "text-gold-dark" : "text-brand"}`}>{val}</div>
+        <div className="mt-0.5 text-sm font-medium text-ink-mid">{label}</div>
+      </div>
     </button>
   );
 
   return (
     <div className="space-y-6">
       {/* Welcome */}
-      <div className="card hero-gradient !border-0 text-white">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">{tenant?.plan ? `${tenant.plan} plan` : "Welcome"}</p>
-        <h2 className="mt-1 font-serif text-3xl">{tenant?.name || "Your agency"}</h2>
-        <p className="mt-2 max-w-xl text-sm text-white/80">Approve bookings, keep your calendar full, sign care documents, and pay your team — all in one place.</p>
+      <div className="card hero-gradient relative overflow-hidden !border-0 text-white">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full bg-white/10 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full bg-gold/20 blur-2xl" />
+        <div className="relative">
+          <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white/90 capitalize">{tenant?.plan ? `${tenant.plan} plan` : "Welcome"}</span>
+          <h2 className="mt-3 font-serif text-3xl font-black tracking-tight sm:text-4xl">{tenant?.name || "Your agency"}</h2>
+          <p className="mt-2 max-w-xl text-sm text-white/80">Approve bookings, keep your calendar full, sign care documents, and pay your team — all in one place.</p>
+        </div>
       </div>
 
       <GettingStarted services={services} caregivers={caregivers} clients={clients} onGo={onGo} />
@@ -434,14 +444,14 @@ function Dashboard({ tenant, services, bookings, shifts, invoices, clients, care
 
       {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Pending approvals" val={String(pending.length)} go="schedule" tone={pending.length ? "gold" : "brand"} />
-        <Stat label="Clocked in now" val={String(clockedIn.length)} go="schedule" tone="ok" />
-        <Stat label="Today's shifts" val={String(todays.length)} go="schedule" />
-        <Stat label="Revenue this week" val={"$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" tone="ok" />
-        <Stat label="Active caregivers" val={String(caregivers.length)} go="staff" />
-        <Stat label="Client households" val={String(clients.length)} go="clients" />
-        <Stat label="Outstanding invoices" val={"$" + outstanding.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" tone={outstanding ? "gold" : "brand"} />
-        <Stat label="Leads in pipeline" val={leadCount.toLocaleString()} go="leads" />
+        <Stat label="Pending approvals" val={String(pending.length)} go="schedule" tone={pending.length ? "gold" : "brand"} icon="approvals" />
+        <Stat label="Clocked in now" val={String(clockedIn.length)} go="schedule" tone="ok" icon="clock" />
+        <Stat label="Today's shifts" val={String(todays.length)} go="schedule" icon="calendar" />
+        <Stat label="Revenue this week" val={"$" + revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" tone="ok" icon="money" />
+        <Stat label="Active caregivers" val={String(caregivers.length)} go="staff" icon="staff" />
+        <Stat label="Client households" val={String(clients.length)} go="clients" icon="clients" />
+        <Stat label="Outstanding invoices" val={"$" + outstanding.toLocaleString(undefined, { maximumFractionDigits: 0 })} go="money" tone={outstanding ? "gold" : "brand"} icon="documents" />
+        <Stat label="Leads in pipeline" val={leadCount.toLocaleString()} go="leads" icon="leads" />
       </div>
 
       {pending.length > 0 && (
