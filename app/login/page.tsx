@@ -84,7 +84,7 @@ export default function AuthPage() {
       <div className="w-full max-w-md">
         <Link href="/" className="mb-8 block text-center font-serif text-2xl font-semibold text-ink">The Care Royal</Link>
 
-          <div className="mb-6 inline-flex rounded-xl border border-rule bg-white p-1 shadow-card">
+          <div className="mb-6 mx-auto flex w-fit rounded-xl border border-rule bg-white p-1 shadow-card">
             <button onClick={() => { setTab("signin"); setErr(""); }} className={tab === "signin" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Sign in</button>
             <button onClick={() => router.push("/get-started/")} className="chip-off !bg-transparent !text-ink-mid">Create account</button>
           </div>
