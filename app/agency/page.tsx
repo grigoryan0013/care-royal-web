@@ -21,13 +21,12 @@ const nav: NavItem[] = [
   { key: "staff", label: "Staff", icon: "staff" },
   { key: "services", label: "Services", icon: "services" },
   { key: "messages", label: "Messages", icon: "messages" },
-  { key: "money", label: "Money", icon: "money" },
+  { key: "money", label: "Invoices", icon: "money" },
   { key: "documents", label: "Documents", icon: "documents" },
   { key: "leads", label: "Leads", icon: "leads" },
   { key: "recruiting", label: "Recruiting", icon: "staff" },
   { key: "growth", label: "Grow & brand", icon: "building" },
   { key: "reports", label: "Reports", icon: "spark" },
-  { key: "activity", label: "Activity", icon: "clock" },
 ];
 
 const SECTION_INTRO: Record<string, string> = {
@@ -43,7 +42,6 @@ const SECTION_INTRO: Record<string, string> = {
   recruiting: "Caregiver applications from your public hiring page. Accept to add them to your roster.",
   growth: "White-label your portals and run multiple locations under one organization.",
   reports: "How your agency is trending — bookings, revenue, utilization, margin and lead conversion.",
-  activity: "A running audit log of what's happened across your agency.",
 };
 
 interface Service { serviceId: string; category: string; name: string; profileType: string; pricingModel: string; rate: string; credential: string; active: string }
@@ -202,7 +200,6 @@ export default function AgencyPortal() {
       {isOwner && view === "recruiting" && <Recruiting joinCode={tenant?.joinCode} onChange={load} />}
       {isOwner && view === "growth" && <GrowthPanel />}
       {isOwner && view === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} caregivers={caregivers} leadCounts={leadCounts} />}
-      {isOwner && view === "activity" && <Activity />}
     </PortalShell>
   );
 }
@@ -1031,53 +1028,126 @@ function Recruiting({ joinCode, onChange }: { joinCode?: string; onChange: () =>
   );
 }
 
-// ---------------------------------------------------------------- activity
-function Activity() {
-  const [events, setEvents] = useState<Record<string, string>[]>([]);
-  useEffect(() => { apiGet("/api/events").then((d) => setEvents(d.events || [])).catch(() => {}); }, []);
-  return (
-    <div className="card">
-      {events.length === 0 && <p className="text-sm text-ink-light">No activity recorded yet.</p>}
-      <ul className="space-y-3">
-        {events.map((e, i) => (
-          <li key={i} className="flex items-start gap-3 text-sm">
-            <span className="mt-1.5 stat-dot bg-brand" />
-            <span className="flex-1"><span className="text-ink">{e.text}</span> <span className="text-ink-light">· {e.actor}</span></span>
-            <span className="shrink-0 text-xs text-ink-light">{e.createdAt ? new Date(e.createdAt).toLocaleString() : ""}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------- services
+// Suggested service templates offered in the "Add service" dropdown (not auto-loaded).
+const SERVICE_SUGGESTIONS: { name: string; category: string; profileType: string; pricingModel: string; credential: string }[] = [
+  { name: "Personal care (bathing, dressing)", category: "Personal Care", profileType: "person", pricingModel: "hourly", credential: "hha" },
+  { name: "Companion care", category: "Companionship", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Homemaking & light housekeeping", category: "Homemaking", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Meal preparation", category: "Homemaking", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Medication reminders", category: "Personal Care", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Transportation & errands", category: "Companionship", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Respite care", category: "Respite Care", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Overnight care", category: "Personal Care", profileType: "person", pricingModel: "flat", credential: "hha" },
+  { name: "Live-in care", category: "Personal Care", profileType: "person", pricingModel: "flat", credential: "hha" },
+  { name: "Dementia & Alzheimer's care", category: "Specialized Care", profileType: "person", pricingModel: "hourly", credential: "cna" },
+  { name: "Post-surgery recovery care", category: "Specialized Care", profileType: "person", pricingModel: "hourly", credential: "cna" },
+  { name: "Skilled nursing visit", category: "Skilled Nursing", profileType: "person", pricingModel: "visit", credential: "rn" },
+  { name: "Physical therapy visit", category: "Skilled Nursing", profileType: "person", pricingModel: "visit", credential: "rn" },
+  { name: "Child care / sitter", category: "Child Care", profileType: "person", pricingModel: "hourly", credential: "none" },
+  { name: "Pet care & walking", category: "Pet Care", profileType: "pet", pricingModel: "hourly", credential: "none" },
+];
+
 function Services({ services, onChange }: { services: Service[]; onChange: () => void }) {
-  const [busy, setBusy] = useState(false);
-  async function seed() {
-    setBusy(true);
-    try { await apiPost("/api/services", { action: "seed" }); onChange(); } finally { setBusy(false); }
-  }
-  if (services.length === 0) {
-    return (
-      <div className="card text-center">
-        <p className="mb-4 text-sm text-ink-mid">No services yet. Load the full The Care Royal catalog (63 services across 10 categories) and edit rates from there.</p>
-        <button onClick={seed} disabled={busy} className="btn-primary">{busy ? "Loading…" : "Load default catalog"}</button>
-      </div>
-    );
-  }
   const byCat: Record<string, Service[]> = {};
   for (const s of services) (byCat[s.category] ||= []).push(s);
   return (
     <div className="space-y-6">
-      {Object.entries(byCat).map(([cat, list]) => (
-        <div key={cat} className="card">
-          <h3 className="mb-3 font-serif text-lg text-ink">{cat}</h3>
-          <div className="space-y-2">
-            {list.map((s) => <ServiceRow key={s.serviceId} s={s} onChange={onChange} />)}
-          </div>
+      <AddServiceForm onChange={onChange} />
+      {services.length === 0 ? (
+        <div className="card text-center">
+          <p className="text-sm text-ink-light">No services yet — add your first one above. Start from a suggestion or create your own.</p>
         </div>
-      ))}
+      ) : (
+        Object.entries(byCat).map(([cat, list]) => (
+          <div key={cat} className="card">
+            <h3 className="mb-3 font-serif text-lg font-bold text-ink">{cat}</h3>
+            <div className="space-y-2">
+              {list.map((s) => <ServiceRow key={s.serviceId} s={s} onChange={onChange} />)}
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// Add your services — a "+" to create custom, with the catalog offered as dropdown
+// suggestions that pre-fill the form (owner can then tweak or type their own).
+function AddServiceForm({ onChange }: { onChange: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [profileType, setProfileType] = useState("person");
+  const [pricingModel, setPricingModel] = useState("hourly");
+  const [rate, setRate] = useState("");
+  const [credential, setCredential] = useState("none");
+  const [busy, setBusy] = useState(false);
+
+  function pickSuggestion(idx: string) {
+    const s = SERVICE_SUGGESTIONS[Number(idx)];
+    if (!s) return;
+    setName(s.name); setCategory(s.category); setProfileType(s.profileType); setPricingModel(s.pricingModel); setCredential(s.credential);
+  }
+  function reset() { setName(""); setCategory(""); setProfileType("person"); setPricingModel("hourly"); setRate(""); setCredential("none"); }
+  async function add() {
+    if (!name.trim()) return;
+    setBusy(true);
+    try { await apiPost("/api/services", { action: "create", name, category: category || "Custom", profileType, pricingModel, rate, credential }); reset(); setOpen(false); onChange(); }
+    finally { setBusy(false); }
+  }
+
+  if (!open) {
+    return (
+      <div className="card flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-serif text-lg font-bold text-ink">Add your services</h3>
+          <p className="mt-1 text-sm text-ink-light">Create the services your agency offers. Start from a suggestion or build your own.</p>
+        </div>
+        <button onClick={() => setOpen(true)} className="btn-gradient btn-sm"><Icon name="plus" size={16} /> Add service</button>
+      </div>
+    );
+  }
+  return (
+    <div className="card space-y-4">
+      <h3 className="font-serif text-lg font-bold text-ink">Add a service</h3>
+      <div>
+        <label className="label">Start from a suggestion (optional)</label>
+        <select className="field" defaultValue="" onChange={(e) => pickSuggestion(e.target.value)}>
+          <option value="">Choose a template…</option>
+          {SERVICE_SUGGESTIONS.map((s, i) => <option key={i} value={i}>{s.name} · {s.category}</option>)}
+        </select>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div><label className="label">Service name</label><input className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Companion care" /></div>
+        <div><label className="label">Category</label><input className="field" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Companionship" /></div>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label className="label">Billing</label>
+          <select className="field" value={pricingModel} onChange={(e) => setPricingModel(e.target.value)}>
+            <option value="hourly">Per hour</option>
+            <option value="visit">Per visit</option>
+            <option value="flat">Flat rate</option>
+          </select>
+        </div>
+        <div><label className="label">Rate ($)</label><input className="field" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g. 28" inputMode="decimal" /></div>
+        <div>
+          <label className="label">Requires</label>
+          <select className="field" value={credential} onChange={(e) => setCredential(e.target.value)}>
+            <option value="none">No credential</option>
+            <option value="hha">HHA</option>
+            <option value="cna">CNA</option>
+            <option value="lvn">LVN/LPN</option>
+            <option value="rn">RN</option>
+          </select>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={add} disabled={busy || !name.trim()} className="btn-gradient flex-1">{busy ? "Adding…" : "Add service"}</button>
+        <button onClick={() => { reset(); setOpen(false); }} className="btn-ghost">Cancel</button>
+      </div>
     </div>
   );
 }
