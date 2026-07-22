@@ -35,8 +35,13 @@ export default function GetStarted() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const c = (new URLSearchParams(window.location.search).get("code") || "").trim().toUpperCase();
-    if (c) { setIntent("code"); setCode(c); setStep(1); }
+    const q = new URLSearchParams(window.location.search);
+    const c = (q.get("code") || "").trim().toUpperCase();
+    if (c) { setIntent("code"); setCode(c); setStep(1); return; }
+    // Deep-link the intent from the consumer marketplace ("Find care" / "Become a caregiver").
+    const want = (q.get("intent") || q.get("for") || "").toLowerCase();
+    const map: Record<string, Intent> = { care: "care", family: "care", work: "work", caregiver: "work", job: "work" };
+    if (map[want]) { setIntent(map[want]); setAns({}); setStep(1); }
   }, []);
 
   const set = (k: string, v: unknown) => setAns((a) => ({ ...a, [k]: v }));
