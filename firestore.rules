@@ -85,6 +85,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // OAuth tokens (QuickBooks/Gusto) live here, written/read ONLY by Cloud
+    // Functions via the Admin SDK (which bypasses rules). Never client-accessible.
+    match /tenantSecrets/{tid} {
+      allow read, write: if false;
+    }
+
     // ---- join codes: public code -> tenant lookup so a family/caregiver can
     // join an existing agency at signup (before they have a profile). Contains
     // no sensitive data (tenantId + agency display name only).

@@ -818,7 +818,7 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
 
   // ---- ITEM 10: QuickBooks sync + audit report packs -----------------------
   if (p === "/api/quickbooks" && method === "POST") {
-    if (body.action === "status") { try { const r = await httpsCallable(functions(), "quickbooksStatus")({}); return r.data; } catch { const snap = await getDoc(doc(db(), "tenants", T)); return { connected: !!(snap.exists() && (snap.data() as Row).qboRealmId) }; } }
+    if (body.action === "status") { try { const r = await httpsCallable(functions(), "quickbooksStatus")({}); return r.data; } catch { const snap = await getDoc(doc(db(), "tenants", T)); return { connected: !!(snap.exists() && (snap.data() as Row).qboConnected) }; } }
     if (body.action === "connect") { try { const r = await httpsCallable(functions(), "quickbooksConnect")({}); return r.data; } catch { return { error: "QuickBooks setup is coming soon. Add Intuit credentials in cloud-functions to enable it." }; } }
     if (body.action === "exchange") { try { const r = await httpsCallable(functions(), "quickbooksExchange")({ code: body.code, realmId: body.realmId }); if ((r.data as Row)?.ok) void logEvent("Connected QuickBooks"); return r.data; } catch { return { ok: false, note: "Couldn't finish connecting QuickBooks." }; } }
     if (body.action === "sync") { try { const r = await httpsCallable(functions(), "quickbooksSync")({}); void logEvent("Synced invoices to QuickBooks"); return r.data; } catch { return { ok: false, note: "Connect QuickBooks first." }; } }

@@ -134,10 +134,11 @@ exports.gustoExchange = onCall({ secrets: [GUSTO_CLIENT_ID, GUSTO_CLIENT_SECRET]
   });
   const tok = await r.json().catch(() => ({}));
   if (!tok.access_token) return { ok: false, note: tok.error_description || tok.error || "Gusto connection failed." };
-  await db.doc(`tenants/${tenantId}`).set({
-    payrollProvider: "gusto", gustoAccessToken: tok.access_token,
-    gustoRefreshToken: tok.refresh_token || "", gustoConnectedAt: new Date().toISOString(),
+  // Tokens to server-only tenantSecrets; only the provider flag on the tenant doc.
+  await db.doc(`tenantSecrets/${tenantId}`).set({
+    gustoAccessToken: tok.access_token, gustoRefreshToken: tok.refresh_token || "",
   }, { merge: true });
+  await db.doc(`tenants/${tenantId}`).set({ payrollProvider: "gusto", gustoConnectedAt: new Date().toISOString() }, { merge: true });
   return { ok: true, connected: true };
 });
 
@@ -388,7 +389,7 @@ async function intuitToken(form) {
 exports.quickbooksStatus = onCall(async (request) => {
   const { tenantId } = await ctx(request);
   const t = await db.doc(`tenants/${tenantId}`).get();
-  return { connected: !!(t.exists && t.data().qboRealmId) };
+  return { connected: !!(t.exists && t.data().qboConnected) };
 });
 // OAuth callback: the agency page posts the code + realmId Intuit returned; we
 // trade them for tokens and store them on the tenant. Needs the client secret.
@@ -400,10 +401,12 @@ exports.quickbooksExchange = onCall({ secrets: [INTUIT_CLIENT_ID, INTUIT_CLIENT_
   if (!code || !realmId) throw new HttpsError("invalid-argument", "Missing code or realmId.");
   const tok = await intuitToken({ grant_type: "authorization_code", code, redirect_uri: INTUIT_REDIRECT });
   if (!tok.access_token) return { ok: false, note: tok.error_description || tok.error || "Token exchange failed." };
-  await db.doc(`tenants/${tenantId}`).set({
-    qboRealmId: String(realmId), qboAccessToken: tok.access_token,
-    qboRefreshToken: tok.refresh_token || "", qboConnectedAt: new Date().toISOString(),
+  // Tokens live in tenantSecrets (server-only, never client-readable); only a safe
+  // "connected" flag goes on the client-readable tenant doc.
+  await db.doc(`tenantSecrets/${tenantId}`).set({
+    qboRealmId: String(realmId), qboAccessToken: tok.access_token, qboRefreshToken: tok.refresh_token || "",
   }, { merge: true });
+  await db.doc(`tenants/${tenantId}`).set({ qboConnected: true, qboConnectedAt: new Date().toISOString() }, { merge: true });
   return { ok: true, connected: true };
 });
 exports.quickbooksConnect = onCall({ secrets: [INTUIT_CLIENT_ID] }, async (request) => {
@@ -417,17 +420,17 @@ exports.quickbooksConnect = onCall({ secrets: [INTUIT_CLIENT_ID] }, async (reque
 });
 exports.quickbooksSync = onCall({ secrets: [INTUIT_CLIENT_ID, INTUIT_CLIENT_SECRET] }, async (request) => {
   const { tenantId } = await ctx(request);
-  const ref = db.doc(`tenants/${tenantId}`);
-  const t = await ref.get();
-  const realmId = t.exists ? t.data().qboRealmId : "";
-  const refreshToken = t.exists ? t.data().qboRefreshToken : "";
+  const sref = db.doc(`tenantSecrets/${tenantId}`);
+  const s = await sref.get();
+  const realmId = s.exists ? s.data().qboRealmId : "";
+  const refreshToken = s.exists ? s.data().qboRefreshToken : "";
   if (!realmId || !refreshToken) return { ok: false, note: "Connect QuickBooks first." };
   // Intuit access tokens expire hourly — refresh before every sync, then persist
-  // the rotated refresh token.
+  // the rotated refresh token (server-only tenantSecrets).
   const tok = await intuitToken({ grant_type: "refresh_token", refresh_token: refreshToken });
   const token = tok.access_token;
   if (!token) return { ok: false, note: "QuickBooks session expired — reconnect." };
-  await ref.set({ qboAccessToken: token, ...(tok.refresh_token ? { qboRefreshToken: tok.refresh_token } : {}) }, { merge: true });
+  await sref.set({ qboAccessToken: token, ...(tok.refresh_token ? { qboRefreshToken: tok.refresh_token } : {}) }, { merge: true });
   const invSnap = await db.collection("invoices").where("tenantId", "==", tenantId).where("status", "==", "unpaid").get();
   // Push each unpaid invoice as a QuickBooks Invoice (best-effort; skips on error).
   let synced = 0;
