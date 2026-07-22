@@ -92,18 +92,36 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Two audiences */}
+      {/* Three ways Care Royal works */}
       <section className="mx-auto max-w-6xl px-5 pb-20">
-        <div className="grid gap-6 md:grid-cols-2">
-          <div className="card flex flex-col">
-            <h3 className="font-serif text-2xl font-bold text-ink">Looking for care?</h3>
-            <p className="mt-2 flex-1 text-sm text-ink-light">Tell us what you need and connect with caregivers near you. Message, schedule and pay securely — all in one place.</p>
-            <Link href="/get-started/?intent=care" className="btn-gradient btn-lg mt-6 w-fit">Find care</Link>
+        <div className="text-center">
+          <span className="eyebrow">One platform, three ways</span>
+          <h2 className="mt-4 font-serif text-3xl font-black tracking-tight text-ink sm:text-4xl">Care <span className="text-gradient">your way</span></h2>
+          <p className="mx-auto mt-3 max-w-2xl text-ink-light">Hire directly, let us handle everything, or run your own care business — Care Royal does all three. That&apos;s what makes us more than a marketplace.</p>
+        </div>
+        <div className="mt-12 grid items-start gap-6 lg:grid-cols-3">
+          {/* Self-service */}
+          <div className="relative flex flex-col rounded-xl2 border-2 border-brand bg-white p-7 shadow-brand lg:-mt-2 lg:pb-9">
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-4 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-brand" style={{ background: "linear-gradient(120deg,#4B39EF,#673AB7)" }}>Most flexible</span>
+            <span className="icon-badge"><Icon name="search" /></span>
+            <h3 className="mt-4 font-serif text-xl font-bold text-ink">Self-service marketplace</h3>
+            <p className="mt-2 flex-1 text-sm text-ink-light">Browse caregivers near you, message, book and pay directly — all on your schedule. The care.com way, done better.</p>
+            <Link href="/get-started/?intent=care" className="btn-gradient btn-lg mt-6 w-full">Find care</Link>
+            <Link href="/get-started/?intent=work" className="mt-3 text-center text-sm font-semibold text-brand">Are you a caregiver? Apply here</Link>
           </div>
-          <div className="card flex flex-col">
-            <h3 className="font-serif text-2xl font-bold text-ink">Looking for care jobs?</h3>
-            <p className="mt-2 flex-1 text-sm text-ink-light">Build your profile, set your availability and get discovered by families near you. Manage your schedule and get paid on time.</p>
-            <Link href="/get-started/?intent=work" className="btn-ghost btn-lg mt-6 w-fit">Apply as a caregiver</Link>
+          {/* Full-service staffing */}
+          <div className="card lift flex flex-col">
+            <span className="icon-badge"><Icon name="spark" /></span>
+            <h3 className="mt-4 font-serif text-xl font-bold text-ink">Full-service staffing</h3>
+            <p className="mt-2 flex-1 text-sm text-ink-light">Prefer we handle it? Tell us your needs and we&apos;ll match and coordinate caregivers for you, with a personalized care plan and quote.</p>
+            <Link href="/quote/" className="btn-ghost btn-lg mt-6 w-full">Request a free quote</Link>
+          </div>
+          {/* Agencies */}
+          <div className="card lift flex flex-col">
+            <span className="icon-badge"><Icon name="building" /></span>
+            <h3 className="mt-4 font-serif text-xl font-bold text-ink">Care Royal for agencies</h3>
+            <p className="mt-2 flex-1 text-sm text-ink-light">Run your own home-care agency end to end on our white-label platform — scheduling, family bookings, payments and payroll.</p>
+            <Link href="/agencies/" className="btn-ghost btn-lg mt-6 w-full">Explore the platform</Link>
           </div>
         </div>
       </section>
