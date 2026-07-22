@@ -2,6 +2,7 @@
 // This keeps Firebase the ONLY backend. It stays inert (client falls back to
 // "payments coming soon") until you deploy it with the two secrets set.
 // See PAYMENTS.md for the one-time setup + deploy steps.
+const { setGlobalOptions } = require("firebase-functions/v2");
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
@@ -12,6 +13,13 @@ const { google } = require("googleapis");
 
 admin.initializeApp();
 const db = admin.firestore();
+
+// This org blocks creation of the default compute service account that Gen-2
+// functions would otherwise run as, so pin every function to the existing
+// App Engine default SA instead. Without this the deploy fails provisioning the
+// missing default SA (exit 2). This SA must hold the roles the runtime needs
+// (Secret Manager accessor, Datastore user, etc.).
+setGlobalOptions({ serviceAccount: "care-royale2-4dgwu0@care-royale2-4dgwu0.iam.gserviceaccount.com" });
 
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");

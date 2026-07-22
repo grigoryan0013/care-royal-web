@@ -8,7 +8,7 @@ import Icon from "../../components/Icon";
 import { BarChart, Donut } from "../../components/Charts";
 import { printDoc } from "../../components/DocumentsPanel";
 import DocStudio from "../../components/DocStudio";
-import { AiPanel, BillingPanel, GrowthPanel, BenchmarkPanel, PayoutsPanel, BackgroundCheck } from "../../components/AdvancedPanels";
+import { GrowthPanel, QuickBooksCard } from "../../components/AdvancedPanels";
 import { apiGet, apiPost, signOutAndRedirect, verifySession, MANAGER_PERMISSION_KEYS, type SessionUser } from "../lib/session";
 import { storage } from "../lib/firebase";
 import { ref as sref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -24,11 +24,8 @@ const nav: NavItem[] = [
   { key: "documents", label: "Documents", icon: "documents" },
   { key: "leads", label: "Leads", icon: "leads" },
   { key: "recruiting", label: "Recruiting", icon: "staff" },
-  { key: "ai", label: "Assistant", icon: "spark" },
-  { key: "billing", label: "Billing & EVV", icon: "money" },
   { key: "growth", label: "Grow & brand", icon: "building" },
   { key: "reports", label: "Reports", icon: "spark" },
-  { key: "benchmarks", label: "Benchmarks", icon: "leads" },
   { key: "activity", label: "Activity", icon: "clock" },
 ];
 
@@ -43,11 +40,8 @@ const SECTION_INTRO: Record<string, string> = {
   documents: "Send care plans, agreements and consents for in-app signature with a full audit trail.",
   leads: "Your inquiry pipeline. Import a CSV and move each lead from new to client.",
   recruiting: "Caregiver applications from your public hiring page. Accept to add them to your roster.",
-  ai: "Built-in templates — draft care plans, summarize visit notes with risk flags, and write family updates. No setup, no external service.",
-  billing: "Electronic Visit Verification, prior authorizations, insurance claims, audit packs and QuickBooks.",
   growth: "White-label your portals and run multiple locations under one organization.",
   reports: "How your agency is trending — bookings, revenue, utilization, margin and lead conversion.",
-  benchmarks: "See how your fill rate and wages compare to agencies your size — anonymized across the network.",
   activity: "A running audit log of what's happened across your agency.",
 };
 
@@ -195,11 +189,8 @@ export default function AgencyPortal() {
       {isOwner && view === "team" && <Team flash={flash} />}
       {isOwner && view === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
       {isOwner && view === "recruiting" && <Recruiting joinCode={tenant?.joinCode} onChange={load} />}
-      {isOwner && view === "ai" && <AiPanel />}
-      {isOwner && view === "billing" && <BillingPanel />}
       {isOwner && view === "growth" && <GrowthPanel />}
       {isOwner && view === "reports" && <Reports bookings={bookings} shifts={shifts} invoices={invoices} caregivers={caregivers} leadCounts={leadCounts} />}
-      {isOwner && view === "benchmarks" && <BenchmarkPanel />}
       {isOwner && view === "activity" && <Activity />}
     </PortalShell>
   );
@@ -799,7 +790,6 @@ function StaffRow({ c, onChange }: { c: Caregiver; onChange: () => void }) {
         </div>
         <div className="flex items-center gap-2">
           {cs && <span className={cs.tone}>{cs.label}</span>}
-          <BackgroundCheck userId={c.userId} status={c.bgCheckStatus} onChange={onChange} />
           <button onClick={() => setEdit((v) => !v)} className="btn-ghost btn-sm">{edit ? "Close" : "Edit"}</button>
         </div>
       </div>
@@ -1070,7 +1060,7 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
         )}
       </div>
 
-      <PayoutsPanel />
+      <QuickBooksCard />
     </div>
   );
 }

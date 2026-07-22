@@ -208,6 +208,28 @@ function AuditQuickbooks() {
   );
 }
 
+// QuickBooks Online connect — agencies link their OWN QuickBooks company so
+// invoices sync for accounting. Lives in the Money tab. Self-serve: one click to
+// authorize, status shown, sync on demand.
+export function QuickBooksCard() {
+  const [qb, setQb] = useState<{ connected: boolean } | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { apiPost("/api/quickbooks", { action: "status" }).then(setQb).catch(() => setQb({ connected: false })); }, []);
+  async function connect() { try { const d = await apiPost("/api/quickbooks", { action: "connect" }); if (d.url) window.location.href = d.url; else { setNote("QuickBooks connected (demo)."); setQb({ connected: true }); } } catch (e) { setNote(e instanceof Error ? e.message : ""); } }
+  async function sync() { setBusy(true); try { const d = await apiPost("/api/quickbooks", { action: "sync" }); setNote(d.synced != null ? `Synced ${d.synced} invoice(s) to QuickBooks.` : (d.note || "")); } finally { setBusy(false); } }
+  return (
+    <div className="card">
+      <h3 className="font-serif text-lg text-ink">QuickBooks Online</h3>
+      <p className="mt-1 mb-3 text-sm text-ink-light">Connect your own QuickBooks company and push your invoices there for accounting. The Care Royal never touches your books — it only sends the invoices you choose.</p>
+      {note && <p className="mb-3 rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
+      {qb?.connected
+        ? <div className="flex items-center gap-2"><span className="badge-ok">Connected</span><button onClick={sync} disabled={busy} className="btn-soft btn-sm">{busy ? "Syncing…" : "Sync invoices"}</button></div>
+        : <button onClick={connect} className="btn-ghost btn-sm">Connect QuickBooks</button>}
+    </div>
+  );
+}
+
 // ==================== ITEM 6: Franchise / white-label ======================
 export function GrowthPanel() {
   const [b, setB] = useState<Row>({});

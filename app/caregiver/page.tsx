@@ -5,7 +5,7 @@ import DocumentsPanel from "../../components/DocumentsPanel";
 import CalendarView from "../../components/CalendarView";
 import MessagesPanel from "../../components/MessagesPanel";
 import Icon from "../../components/Icon";
-import { CashOut, SwapBoard } from "../../components/AdvancedPanels";
+import { SwapBoard } from "../../components/AdvancedPanels";
 import { apiGet, apiPost, verifySession, signOutAndRedirect, type SessionUser } from "../lib/session";
 
 const nav: NavItem[] = [
@@ -239,7 +239,6 @@ function MyPay() {
   }, []);
   return (
     <div className="space-y-5">
-      <CashOut />
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="card"><div className="text-3xl font-semibold text-brand">{data.hours}</div><div className="mt-1 text-sm text-ink-mid">Hours this period</div></div>
         <div className="card"><div className="text-3xl font-semibold text-ok">${data.gross.toFixed(2)}</div><div className="mt-1 text-sm text-ink-mid">Gross pay this period</div></div>
