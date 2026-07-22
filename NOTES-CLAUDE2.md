@@ -66,11 +66,23 @@ list, re-run `/security-review` and `/code-review` on the working tree.
 - **Firestore rules**: `firebase deploy --only firestore:rules --project care-royale2-4dgwu0`.
   Per the security memory, verify against the live project with REST (positive + negative
   case) before declaring done. **The rule fixes only protect prod once this is deployed.**
-- **Cloud Functions** (`instantPayout`, `quickbooksSync`): live in `cloud-functions/`,
-  which is **NOT deployed** (Firebase project is on Spark / no Blaze). Those two fixes are
-  code-only until Blaze billing + `gcloud functions deploy` (see the functions-deploy
-  memory). Instant-pay and QB sync aren't live yet anyway, so the code is ready for when
-  they are.
+- **Cloud Functions** (`instantPayout`, `quickbooksSync`): **DEPLOYED to prod** (Blaze is
+  on). Both are ACTIVE GEN_2 in `us-central1`. `instantPayout` was a new deploy (rev 00001);
+  `quickbooksSync` was redeployed with the fix. Deploy recipe (default compute SA was
+  deleted, so use gcloud with the project SA as build+run SA):
+  ```
+  CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.12 gcloud functions deploy <NAME> \
+    --project care-royale2-4dgwu0 --gen2 --region us-central1 \
+    --runtime nodejs20 --source cloud-functions --entry-point <NAME> \
+    --trigger-http --allow-unauthenticated \
+    --run-service-account care-royale2-4dgwu0@care-royale2-4dgwu0.iam.gserviceaccount.com \
+    --build-service-account projects/care-royale2-4dgwu0/serviceAccounts/care-royale2-4dgwu0@care-royale2-4dgwu0.iam.gserviceaccount.com \
+    --set-secrets <SECRETS>
+  ```
+  Secrets: instantPayout → `STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest`;
+  quickbooksSync → `INTUIT_CLIENT_ID=INTUIT_CLIENT_ID:latest,INTUIT_CLIENT_SECRET=INTUIT_CLIENT_SECRET:latest`.
+  onCall functions deploy `--allow-unauthenticated` (allUsers invoker) — the Firebase
+  callable SDK verifies the auth token inside `ctx(request)`.
 
 ## Suggested next steps
 - Deploy the Firestore rules (highest priority — the takeover/hijack fixes are inert until then).
