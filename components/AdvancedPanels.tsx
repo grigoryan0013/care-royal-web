@@ -3,6 +3,7 @@
 // page files; imported and wired in via new nav sections / inline controls.
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiPost } from "../app/lib/session";
+import { withDefaults, SITE_TEMPLATES, QUOTE_OPTIONAL_FIELDS, type SiteConfig } from "../app/lib/site";
 
 type Row = Record<string, any>;
 
@@ -256,12 +257,34 @@ export function GrowthPanel() {
   const [note, setNote] = useState("");
   const [orgName, setOrgName] = useState("");
   const [locName, setLocName] = useState("");
+  const [site, setSite] = useState<SiteConfig>(withDefaults(null));
+  const [code, setCode] = useState("");
   const load = useCallback(async () => {
-    const [br, o] = await Promise.all([apiGet("/api/branding").catch(() => ({ branding: {} })), apiGet("/api/org").catch(() => ({ org: null, locations: [] }))]);
+    const [br, o, s, t] = await Promise.all([
+      apiGet("/api/branding").catch(() => ({ branding: {} })),
+      apiGet("/api/org").catch(() => ({ org: null, locations: [] })),
+      apiGet("/api/site").catch(() => ({ site: null })),
+      apiGet("/api/tenant").catch(() => ({ tenant: null })),
+    ]);
     setB(br.branding || {}); setOrg(o.org); setLocations(o.locations || []);
+    setSite(withDefaults(s.site)); setCode(t.tenant?.joinCode || "");
   }, []);
   useEffect(() => { load(); }, [load]);
   async function saveBrand() { await apiPost("/api/branding", b); setNote("Branding saved. Your portals now use these colors and name."); }
+  async function saveSite() { await apiPost("/api/site", { site }); setNote("Public pages saved."); }
+  const base = typeof window !== "undefined" ? `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH || ""}` : "";
+  const urls = { microsite: `${base}/care/?a=${code}`, quote: `${base}/quote/?a=${code}`, apply: `${base}/apply/?a=${code}` };
+  const copy = (u: string) => { if (typeof navigator !== "undefined") navigator.clipboard?.writeText(u); setNote("Link copied."); };
+  const patch = (page: keyof SiteConfig, k: string, v: unknown) => setSite((s) => ({ ...s, [page]: { ...s[page], [k]: v } }));
+  const tplRow = (value: string, onChange: (v: string) => void) => (
+    <div><label className="label">Look</label><div className="flex flex-wrap gap-2">{SITE_TEMPLATES.map((t) => <button type="button" key={t.key} onClick={() => onChange(t.key)} className={value === t.key ? "chip-on" : "chip-off"}>{t.label}</button>)}</div></div>
+  );
+  const shareRow = (u: string) => (
+    <div className="flex gap-2">
+      <a href={u} target="_blank" rel="noopener noreferrer" className="btn-ghost btn-sm">Preview</a>
+      <button onClick={() => copy(u)} className="btn-soft btn-sm">Copy link</button>
+    </div>
+  );
   async function createOrg() { await apiPost("/api/org", { action: "create_org", name: orgName }); setNote("Organization created."); load(); }
   async function addLoc() { await apiPost("/api/org", { action: "add_location", name: locName }); setLocName(""); load(); }
   return (
@@ -278,6 +301,45 @@ export function GrowthPanel() {
         </div>
         <button onClick={saveBrand} className="btn-primary btn-sm">Save branding</button>
       </div>
+
+      {/* Public pages editor */}
+      <div className="card space-y-5">
+        <div><h3 className="font-serif text-lg font-bold text-ink">Your public pages</h3><p className="mt-1 text-sm text-ink-light">Edit and share your landing page, quote form and hiring page. Pick a look, edit the words, then copy your link.</p></div>
+
+        <div className="space-y-3 rounded-xl border border-rule p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-ink">Landing page (microsite)</h4>{shareRow(urls.microsite)}</div>
+          {tplRow(site.microsite.template, (v) => patch("microsite", "template", v))}
+          <div><label className="label">Tagline</label><input className="field field-sm" value={site.microsite.tagline} onChange={(e) => patch("microsite", "tagline", e.target.value)} /></div>
+          <div><label className="label">About your agency (optional)</label><textarea className="field field-sm" rows={3} value={site.microsite.about} onChange={(e) => patch("microsite", "about", e.target.value)} placeholder="A short paragraph about your agency, your team and what makes you different." /></div>
+          <label className="flex items-center gap-2 text-sm text-ink-mid"><input type="checkbox" checked={site.microsite.showReviews} onChange={(e) => patch("microsite", "showReviews", e.target.checked)} /> Show reviews section</label>
+          <p className="break-all text-xs text-ink-light">{urls.microsite}</p>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-rule p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-ink">Quote request form</h4>{shareRow(urls.quote)}</div>
+          {tplRow(site.quote.template, (v) => patch("quote", "template", v))}
+          <div><label className="label">Headline</label><input className="field field-sm" value={site.quote.headline} onChange={(e) => patch("quote", "headline", e.target.value)} /></div>
+          <div><label className="label">Intro text</label><textarea className="field field-sm" rows={2} value={site.quote.intro} onChange={(e) => patch("quote", "intro", e.target.value)} /></div>
+          <div>
+            <label className="label">Fields to show (contact details always show)</label>
+            <div className="flex flex-wrap gap-2">
+              {QUOTE_OPTIONAL_FIELDS.map((fld) => { const on = site.quote.fields?.[fld.key] !== false; return <button type="button" key={fld.key} onClick={() => setSite((s) => ({ ...s, quote: { ...s.quote, fields: { ...s.quote.fields, [fld.key]: !on } } }))} className={on ? "chip-on" : "chip-off"}>{fld.label}</button>; })}
+            </div>
+          </div>
+          <p className="break-all text-xs text-ink-light">{urls.quote}</p>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-rule p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-ink">Hiring page (apply)</h4>{shareRow(urls.apply)}</div>
+          {tplRow(site.apply.template, (v) => patch("apply", "template", v))}
+          <div><label className="label">Headline</label><input className="field field-sm" value={site.apply.headline} onChange={(e) => patch("apply", "headline", e.target.value)} /></div>
+          <div><label className="label">Intro text</label><textarea className="field field-sm" rows={2} value={site.apply.intro} onChange={(e) => patch("apply", "intro", e.target.value)} /></div>
+          <p className="break-all text-xs text-ink-light">{urls.apply}</p>
+        </div>
+
+        <button onClick={saveSite} className="btn-gradient btn-sm">Save public pages</button>
+      </div>
+
       <div className="card space-y-4">
         <div><h3 className="font-serif text-lg text-ink">Multi-location</h3><p className="mt-1 text-sm text-ink-light">Run several offices under one parent organization, each with its own clients, staff and billing.</p></div>
         {!org ? (

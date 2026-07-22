@@ -306,7 +306,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   if (p === "/api/events" && method === "GET") return { events: db.Events.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)).slice(0, 60) };
   if (p === "/api/apply" && method === "POST") { db.CaregiverApplications.push({ appId: id("app"), tenantId: IDS.tenant, name: String(body.name || ""), email: String(body.email || ""), phone: String(body.phone || ""), city: String(body.city || ""), zip: String(body.zip || ""), credentials: String(body.credentials || ""), experience: String(body.experience || ""), availability: Array.isArray(body.availability) ? (body.availability as string[]).join(", ") : String(body.availability || ""), services: Array.isArray(body.services) ? (body.services as string[]).join(", ") : String(body.services || ""), details: String(body.details || ""), status: "new", createdAt: now() }); write(db); return { ok: true, agency: db.Tenant.name || "The Care Royal" }; }
   if (p === "/api/review" && method === "POST") { db.Reviews.push({ reviewId: id("rv"), tenantId: IDS.tenant, rating: String(Math.max(1, Math.min(5, parseInt(String(body.rating)) || 5))), name: String(body.name || "Anonymous"), text: String(body.text || ""), createdAt: now() }); write(db); return { ok: true }; }
-  if (p === "/api/agency-public" && method === "GET") { const reviews = db.Reviews.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)); const avg = reviews.length ? reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0) / reviews.length : 0; return { agency: { name: db.Tenant.name || "The Care Royal", code: "DEMO24" }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length }; }
+  if (p === "/api/agency-public" && method === "GET") { const reviews = db.Reviews.slice().sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1)); const avg = reviews.length ? reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0) / reviews.length : 0; return { agency: { name: db.Tenant.brandName || db.Tenant.name || "The Care Royal", code: "DEMO24" }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length, site: db.Tenant.site || null, brandColor: db.Tenant.brandColor || "", logoUrl: db.Tenant.logoUrl || "" }; }
 
   // ---- caregiver availability
   if (p === "/api/availability") {
@@ -500,6 +500,10 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   }
 
   // Item 6: branding / org
+  if (p === "/api/site") {
+    if (method === "GET") return { site: db.Tenant.site || null };
+    (db.Tenant as any).site = body.site; write(db); return { ok: true };
+  }
   if (p === "/api/branding") {
     if (method === "GET") return { branding: { logoUrl: db.Tenant.logoUrl || "", brandColor: db.Tenant.brandColor || "", accentColor: db.Tenant.accentColor || "", displayName: db.Tenant.brandName || db.Tenant.name || "", customDomain: db.Tenant.customDomain || "" } };
     for (const [k, f] of [["logoUrl", "logoUrl"], ["brandColor", "brandColor"], ["accentColor", "accentColor"], ["displayName", "brandName"], ["customDomain", "customDomain"]] as [string, string][]) if (k in body) db.Tenant[f] = String((body as Row)[k]);

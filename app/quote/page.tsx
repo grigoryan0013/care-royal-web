@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { publicPost } from "../lib/session";
+import { apiGet, publicPost } from "../lib/session";
+import { withDefaults, defaultSite, type QuoteCfg } from "../lib/site";
 
 const SERVICES = [
   "Personal & senior care", "Companion & non-medical", "Skilled home health",
@@ -18,8 +19,15 @@ export default function QuotePage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState<string | null>(null);
+  const [q, setQ] = useState<QuoteCfg>(defaultSite().quote);
 
-  useEffect(() => { if (typeof window !== "undefined") setCode((new URLSearchParams(window.location.search).get("a") || "").toUpperCase()); }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const c = (new URLSearchParams(window.location.search).get("a") || "").toUpperCase();
+    setCode(c);
+    if (c) apiGet(`/api/agency-public?code=${encodeURIComponent(c)}`).then((d) => { if (d.site) setQ(withDefaults(d.site).quote); }).catch(() => {});
+  }, []);
+  const show = (k: string) => q.fields?.[k] !== false;
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const toggleSvc = (s: string) => setServices((v) => v.includes(s) ? v.filter((x) => x !== s) : [...v, s]);
 
@@ -53,8 +61,8 @@ export default function QuotePage() {
       <div className="mx-auto max-w-3xl px-6 pb-16">
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-dark">Request a free quote</p>
-          <h1 className="mt-1 font-serif text-4xl text-ink">Tell us about the care you need</h1>
-          <p className="mt-2 text-ink-mid">No account needed. Fill this out and a care agency will build a personalized plan and quote for you.</p>
+          <h1 className="mt-1 font-serif text-4xl font-black tracking-tight text-ink">{q.headline}</h1>
+          <p className="mt-2 text-ink-mid">{q.intro}</p>
         </div>
 
         <form onSubmit={submit} className="space-y-5">
@@ -68,17 +76,23 @@ export default function QuotePage() {
             <input className={field} placeholder={careFor === "pet" ? "Pet's name & type" : careFor === "home" ? "Property / address nickname" : "Their name & age (e.g. my mother, 82)"} value={f.recipientName} onChange={set("recipientName")} />
           </div>
 
+          {(show("services") || show("frequency") || show("startDate") || show("schedule")) && (
           <div className="card space-y-4">
             <h2 className="font-serif text-lg text-ink">What kind of care?</h2>
-            <div className="flex flex-wrap gap-2">
-              {SERVICES.map((s) => <button type="button" key={s} onClick={() => toggleSvc(s)} className={services.includes(s) ? "chip-on" : "chip-off"}>{s}</button>)}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className="label">How often?</label><select className={field} value={f.frequency} onChange={set("frequency")}><option value="">Select</option>{FREQ.map((x) => <option key={x} value={x}>{x}</option>)}</select></div>
-              <div><label className="label">Ideal start date</label><input type="date" className={field} value={f.startDate} onChange={set("startDate")} /></div>
-            </div>
-            <div><label className="label">Schedule preferences</label><input className={field} placeholder="e.g. weekday mornings, overnight on weekends" value={f.schedule} onChange={set("schedule")} /></div>
+            {show("services") && (
+              <div className="flex flex-wrap gap-2">
+                {SERVICES.map((s) => <button type="button" key={s} onClick={() => toggleSvc(s)} className={services.includes(s) ? "chip-on" : "chip-off"}>{s}</button>)}
+              </div>
+            )}
+            {(show("frequency") || show("startDate")) && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {show("frequency") && <div><label className="label">How often?</label><select className={field} value={f.frequency} onChange={set("frequency")}><option value="">Select</option>{FREQ.map((x) => <option key={x} value={x}>{x}</option>)}</select></div>}
+                {show("startDate") && <div><label className="label">Ideal start date</label><input type="date" className={field} value={f.startDate} onChange={set("startDate")} /></div>}
+              </div>
+            )}
+            {show("schedule") && <div><label className="label">Schedule preferences</label><input className={field} placeholder="e.g. weekday mornings, overnight on weekends" value={f.schedule} onChange={set("schedule")} /></div>}
           </div>
+          )}
 
           <div className="card space-y-4">
             <h2 className="font-serif text-lg text-ink">Your contact details</h2>
@@ -86,11 +100,11 @@ export default function QuotePage() {
               <div><label className="label">Full name</label><input className={field} value={f.name} onChange={set("name")} required /></div>
               <div><label className="label">Phone</label><input className={field} value={f.phone} onChange={set("phone")} required /></div>
               <div><label className="label">Email</label><input type="email" className={field} value={f.email} onChange={set("email")} required /></div>
-              <div><label className="label">Best time to reach you</label><input className={field} placeholder="e.g. weekday afternoons" value={f.bestTime} onChange={set("bestTime")} /></div>
+              {show("bestTime") && <div><label className="label">Best time to reach you</label><input className={field} placeholder="e.g. weekday afternoons" value={f.bestTime} onChange={set("bestTime")} /></div>}
               <div><label className="label">City</label><input className={field} value={f.city} onChange={set("city")} /></div>
               <div><label className="label">ZIP</label><input className={field} value={f.zip} onChange={set("zip")} /></div>
             </div>
-            <div><label className="label">Anything else we should know?</label><textarea className={field} rows={3} placeholder="Conditions, preferences, questions…" value={f.details} onChange={set("details")} /></div>
+            {show("details") && <div><label className="label">Anything else we should know?</label><textarea className={field} rows={3} placeholder="Conditions, preferences, questions…" value={f.details} onChange={set("details")} /></div>}
             <div><label className="label">Agency code {code ? "" : "(optional)"}</label><input className={`${field} uppercase tracking-widest`} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="If an agency gave you a code" /></div>
           </div>
 

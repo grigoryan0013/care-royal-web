@@ -156,7 +156,14 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     const rsnap = await getDocs(query(collection(db(), "reviews"), where("tenantId", "==", tenantId)));
     const reviews = rsnap.docs.map((d) => d.data() as Row).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1));
     const avg = reviews.length ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length : 0;
-    return { agency: { name: (jc.data() as { agencyName?: string }).agencyName || "", code }, reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length };
+    // Public-safe site/branding lives in publicSites/{tid} (tenants doc is not public-readable).
+    const psnap = await getDoc(doc(db(), "publicSites", tenantId));
+    const pd: Row = psnap.exists() ? (psnap.data() as Row) : {};
+    return {
+      agency: { name: pd.brandName || (jc.data() as { agencyName?: string }).agencyName || "", code },
+      reviews: reviews.slice(0, 20), avg: Math.round(avg * 10) / 10, count: reviews.length,
+      site: pd.site || null, brandColor: pd.brandColor || "", logoUrl: pd.logoUrl || "",
+    };
   }
 
   const m = await me();
@@ -777,7 +784,19 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     if (method === "GET") { const snap = await getDoc(doc(db(), "tenants", T)); const d: Row = snap.exists() ? (snap.data() as Row) : {}; return { branding: { logoUrl: d.logoUrl || "", brandColor: d.brandColor || "", accentColor: d.accentColor || "", displayName: d.brandName || d.name || "", customDomain: d.customDomain || "" } }; }
     if (m.role !== "agency_admin" && m.role !== "agency_coord") return { error: "Agency only." };
     const patch: Row = {}; for (const [k, f] of [["logoUrl", "logoUrl"], ["brandColor", "brandColor"], ["accentColor", "accentColor"], ["displayName", "brandName"], ["customDomain", "customDomain"]] as [string, string][]) if (k in body) patch[f] = String(body[k]);
-    await update("tenants", T, patch); void logEvent("Updated agency branding"); return ok();
+    await update("tenants", T, patch);
+    // Mirror public-safe branding to the public doc the microsite reads.
+    const pub: Row = {}; if ("logoUrl" in patch) pub.logoUrl = patch.logoUrl; if ("brandColor" in patch) pub.brandColor = patch.brandColor; if ("brandName" in patch) pub.brandName = patch.brandName;
+    if (Object.keys(pub).length) await setDoc(doc(db(), "publicSites", T), pub, { merge: true });
+    void logEvent("Updated agency branding"); return ok();
+  }
+  // Public-site config (microsite / quote / apply) — owner-editable.
+  if (p === "/api/site") {
+    if (method === "GET") { const snap = await getDoc(doc(db(), "tenants", T)); const d: Row = snap.exists() ? (snap.data() as Row) : {}; return { site: d.site || null }; }
+    if (m.role !== "agency_admin" && m.role !== "agency_coord") return { error: "Agency only." };
+    await update("tenants", T, { site: body.site });
+    await setDoc(doc(db(), "publicSites", T), { site: body.site }, { merge: true }); // public copy for the microsite
+    void logEvent("Updated public pages"); return ok();
   }
   if (p === "/api/org") {
     if (method === "GET") {

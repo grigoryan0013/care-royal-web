@@ -115,6 +115,15 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Public-safe copy of an agency's site/branding, rendered on the public
+    // microsite/quote/apply pages (the tenants doc itself is NOT public-readable).
+    // Contains only display fields (name, colors, logo, page content) — no PII.
+    match /publicSites/{tid} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if isSuper() || (isOwner() && myTenant() == tid);
+    }
+
     // ---- email -> account-type index (role only, no PII beyond the email key).
     // Public read so a blocked "email already in use" signup can tell the user
     // which account type already exists. Each user writes only their OWN entry

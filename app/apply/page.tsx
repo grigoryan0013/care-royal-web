@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { publicPost } from "../lib/session";
+import { apiGet, publicPost } from "../lib/session";
+import { withDefaults, defaultSite, type ApplyCfg } from "../lib/site";
 
 const SERVICES = ["Personal & senior care", "Companion & non-medical", "Skilled home health", "Child care", "Pet care", "Household & home services", "Transportation"];
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -13,7 +14,13 @@ export default function ApplyPage() {
   const [f, setF] = useState({ name: "", email: "", phone: "", city: "", zip: "", credentials: "", experience: "", details: "" });
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [done, setDone] = useState<string | null>(null);
 
-  useEffect(() => { if (typeof window !== "undefined") setCode((new URLSearchParams(window.location.search).get("a") || "").toUpperCase()); }, []);
+  const [ap, setAp] = useState<ApplyCfg>(defaultSite().apply);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const c = (new URLSearchParams(window.location.search).get("a") || "").toUpperCase();
+    setCode(c);
+    if (c) apiGet(`/api/agency-public?code=${encodeURIComponent(c)}`).then((d) => { if (d.site) setAp(withDefaults(d.site).apply); }).catch(() => {});
+  }, []);
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
   const tog = (arr: string[], setArr: (v: string[]) => void, s: string) => setArr(arr.includes(s) ? arr.filter((x) => x !== s) : [...arr, s]);
 
@@ -44,8 +51,8 @@ export default function ApplyPage() {
       <div className="mx-auto max-w-3xl px-6 pb-16">
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-dark">Join our care team</p>
-          <h1 className="mt-1 font-serif text-4xl text-ink">Apply to be a caregiver</h1>
-          <p className="mt-2 text-ink-mid">No account needed to apply. Tell us about your experience and availability.</p>
+          <h1 className="mt-1 font-serif text-4xl font-black tracking-tight text-ink">{ap.headline}</h1>
+          <p className="mt-2 text-ink-mid">{ap.intro}</p>
         </div>
         <form onSubmit={submit} className="space-y-5">
           <div className="card space-y-4">
