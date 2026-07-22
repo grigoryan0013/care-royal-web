@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "The Care Royal — run your care agency end to end",
-  description: "Scheduling, family bookings, care plans, e-sign, payments and payroll — one platform for home-care agencies.",
+  title: "The Care Royal — Care you can trust",
+  description: "Find and manage trusted care — babysitters, nannies, senior care, pet care and housekeeping near you. Or run your care agency end to end.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

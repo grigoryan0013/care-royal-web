@@ -1,5 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Icon, { type IconName } from "../components/Icon";
+
+export const metadata: Metadata = {
+  title: "The Care Royal — Find trusted care near you",
+  description: "Find babysitters, nannies, senior care, pet care and housekeeping near you. Message, book and pay securely. Free to join.",
+};
 
 const CATEGORIES: { t: string; d: string; icon: IconName }[] = [
   { t: "Child care & babysitting", d: "Sitters and nannies for date nights, after school, or full-time.", icon: "recipients" },
