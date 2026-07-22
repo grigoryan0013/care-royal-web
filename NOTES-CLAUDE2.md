@@ -84,7 +84,17 @@ list, re-run `/security-review` and `/code-review` on the working tree.
   onCall functions deploy `--allow-unauthenticated` (allUsers invoker) — the Firebase
   callable SDK verifies the auth token inside `ctx(request)`.
 
+## Live verification of deployed rules (2026-07-22) — 11/11 PASS
+Ran a real Firebase-Auth + Firestore-REST proof against the deployed rules (throwaway
+attacker account vs. flagship `tn_careroyalhq` / join code `CARE24`). All passed, incl.
+positive controls; all test data cleaned up (auth account + Firestore doc deleted, 404
+confirmed). Script: `scratchpad/rules_test.sh`.
+- BLOCKED: join-code enumeration (list); non-member tenant read; self-create ACTIVE
+  manager of a victim tenant (only status invalid — isolates the new gate); manager join
+  with mismatched tenant; non-owner tenant write (Stripe hijack); cross-tenant
+  caregiverProfile create; self-activate (status→active); self-assign role=manager+tenant.
+- ALLOWED (positive controls): legit platform-lead signup; editing own name.
+
 ## Suggested next steps
-- Deploy the Firestore rules (highest priority — the takeover/hijack fixes are inert until then).
 - Re-run `/security-review` for the lower-severity findings not captured here.
 - Confirm the Stripe Payment Links' success URL returns to the app portal.
