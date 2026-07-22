@@ -27,6 +27,11 @@ const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 // already impersonates info@thecareroyal.com with the gmail.send scope, so no new
 // Workspace setup is needed; just set this secret. See PAYMENTS.md / EMAIL section.
 const GMAIL_SERVICE_ACCOUNT = defineSecret("GMAIL_SERVICE_ACCOUNT");
+const GUSTO_CLIENT_ID = defineSecret("GUSTO_CLIENT_ID");
+const GUSTO_CLIENT_SECRET = defineSecret("GUSTO_CLIENT_SECRET");
+// Gusto API base. DEMO while using demo keys; switch to https://api.gusto.com
+// once the agency is on PRODUCTION (approved partner) keys.
+const GUSTO_BASE = "https://api.gusto-demo.com";
 // Return-URL base for Stripe onboarding/checkout + Intuit OAuth. The SaaS is served
 // under /app on the live domain (landing sits at the root — see WyomingCareapp/
 // deploy-with-app.sh, which builds this app with NEXT_PUBLIC_BASE_PATH=/app), so every
@@ -100,11 +105,39 @@ exports.createCheckout = onCall({ secrets: [STRIPE_SECRET_KEY] }, async (request
 // Full Gusto OAuth returns an authorize URL here once the Gusto app credentials
 // (GUSTO_CLIENT_ID/SECRET) are wired — see PAYMENTS.md. Until then it just marks
 // the tenant connected so gross pay can be synced.
-exports.payrollConnect = onCall(async (request) => {
+const GUSTO_REDIRECT = `${APP_URL}/agency/`;
+exports.payrollConnect = onCall({ secrets: [GUSTO_CLIENT_ID] }, async (request) => {
   const { tenantId, role } = await ctx(request);
   if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
   const provider = (request.data && request.data.provider) || "gusto";
+  if (provider === "gusto") {
+    // Send the agency to Gusto to authorize; state carries the provider so the
+    // callback can tell Gusto apart from QuickBooks (which returns a realmId).
+    const clientId = GUSTO_CLIENT_ID.value();
+    if (!clientId || clientId === "unset") return { error: "Gusto is not configured yet." };
+    const url = `${GUSTO_BASE}/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(GUSTO_REDIRECT)}&response_type=code&state=${encodeURIComponent("gusto:" + tenantId)}`;
+    return { url };
+  }
+  // Care Royal in-app payroll — no external account, just switch it on.
   await db.doc(`tenants/${tenantId}`).set({ payrollProvider: provider }, { merge: true });
+  return { ok: true, connected: true };
+});
+// Gusto OAuth callback: trade the code for tokens and store them on the tenant.
+exports.gustoExchange = onCall({ secrets: [GUSTO_CLIENT_ID, GUSTO_CLIENT_SECRET] }, async (request) => {
+  const { tenantId, role } = await ctx(request);
+  if (role !== "agency_admin" && role !== "agency_coord") throw new HttpsError("permission-denied", "Agency only.");
+  const code = request.data && request.data.code;
+  if (!code) throw new HttpsError("invalid-argument", "Missing code.");
+  const r = await fetch(`${GUSTO_BASE}/oauth/token`, {
+    method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ client_id: GUSTO_CLIENT_ID.value(), client_secret: GUSTO_CLIENT_SECRET.value(), code, grant_type: "authorization_code", redirect_uri: GUSTO_REDIRECT }),
+  });
+  const tok = await r.json().catch(() => ({}));
+  if (!tok.access_token) return { ok: false, note: tok.error_description || tok.error || "Gusto connection failed." };
+  await db.doc(`tenants/${tenantId}`).set({
+    payrollProvider: "gusto", gustoAccessToken: tok.access_token,
+    gustoRefreshToken: tok.refresh_token || "", gustoConnectedAt: new Date().toISOString(),
+  }, { merge: true });
   return { ok: true, connected: true };
 });
 

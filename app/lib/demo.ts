@@ -350,6 +350,7 @@ export async function demoHandle(method: string, path: string, body: Record<stri
   }
   if (p === "/api/payroll" && method === "POST") {
     if (body.action === "connect_payroll") { db.Tenant.payrollProvider = String(body.provider || "gusto"); write(db); return { ok: true, connected: true, demo: true }; }
+    if (body.action === "exchange_gusto") { db.Tenant.payrollProvider = "gusto"; write(db); return { ok: true, connected: true, demo: true }; }
     return { ok: false, note: "Gross pay is ready. Connect your payroll provider (Gusto) to issue payouts." };
   }
 

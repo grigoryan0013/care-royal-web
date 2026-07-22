@@ -74,8 +74,10 @@ export default function AgencyPortal() {
   // QuickBooksCard mounts and completes the token exchange.
   useEffect(() => {
     if (typeof window !== "undefined") {
+      // QuickBooks returns ?code&realmId; Gusto returns ?code&state=gusto:… —
+      // either way open Money so the connect cards finish the exchange.
       const q = new URLSearchParams(window.location.search);
-      if (q.get("code") && q.get("realmId")) setActive("money");
+      if (q.get("code")) setActive("money");
     }
   }, []);
   const role = session?.role;
@@ -991,6 +993,20 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
     setPay({ rows: pr.rows || [], total: pr.total || 0, backboneReady: !!pr.backboneReady, provider: pr.provider || "" });
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Returning from Gusto OAuth? It sends ?code&state=gusto:… (no realmId — that's
+  // QuickBooks). Complete the exchange, then clean the URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search);
+    const code = q.get("code"); const state = q.get("state") || "";
+    if (code && !q.get("realmId") && state.startsWith("gusto")) {
+      setBusy("payroll"); setNote("Finishing Gusto connection…");
+      apiPost("/api/payroll", { action: "exchange_gusto", code })
+        .then((r) => setNote(r?.ok ? "Gusto payroll connected." : (r?.note || "Couldn't finish connecting Gusto.")))
+        .catch(() => setNote("Couldn't finish connecting Gusto."))
+        .finally(() => { window.history.replaceState({}, "", window.location.pathname); setBusy(""); load(); });
+    }
+  }, [load]);
 
   async function connectPayroll(provider: string) {
     setBusy("payroll");

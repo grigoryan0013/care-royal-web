@@ -515,6 +515,10 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
       try { const r = await httpsCallable(functions(), "payrollConnect")({ provider }); return r.data; }
       catch { await update("tenants", T, { payrollProvider: provider }); return { ok: true, connected: true }; }
     }
+    if (body.action === "exchange_gusto") {
+      try { const r = await httpsCallable(functions(), "gustoExchange")({ code: body.code }); if ((r.data as Row)?.ok) void logEvent("Connected Gusto payroll"); return r.data; }
+      catch { return { ok: false, note: "Couldn't finish connecting Gusto." }; }
+    }
     if (body.action === "run") return { ok: false, note: "Gross pay is ready. Connect your payroll provider (Gusto) to issue payouts." };
     return { ok: false };
   }
