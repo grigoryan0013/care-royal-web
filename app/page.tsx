@@ -29,7 +29,7 @@ export default function Home() {
       <header className="sticky top-0 z-30 border-b border-white/10 bg-brand-deep/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5">
           <Link href="/" className="flex items-center gap-2 text-white">
-            <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/15 font-serif text-lg font-bold">C</span>
+            <img src={`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/logo.png`} alt="The Care Royal" className="h-9 w-9 rounded-full bg-white object-cover ring-1 ring-white/25" />
             <span className="font-serif text-lg font-bold tracking-tight">The Care Royal</span>
           </Link>
           <div className="flex items-center gap-2">

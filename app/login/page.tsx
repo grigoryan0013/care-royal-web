@@ -82,7 +82,10 @@ export default function AuthPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-white px-6 py-12">
       <div className="w-full max-w-md">
-        <Link href="/" className="mb-8 block text-center font-serif text-2xl font-semibold text-ink">The Care Royal</Link>
+        <Link href="/" className="mb-8 flex flex-col items-center gap-2.5">
+          <img src={`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/logo.png`} alt="The Care Royal" className="h-16 w-16 rounded-full object-cover" />
+          <span className="font-serif text-2xl font-semibold text-ink">The Care Royal</span>
+        </Link>
 
           <div className="mb-6 mx-auto flex w-fit rounded-xl border border-rule bg-white p-1 shadow-card">
             <button onClick={() => { setTab("signin"); setErr(""); }} className={tab === "signin" ? "chip-on" : "chip-off !bg-transparent !text-ink-mid"}>Sign in</button>
