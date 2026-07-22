@@ -632,15 +632,26 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
 
   // ---- messaging (per-household thread; agency = customer service sees all)
   if (p === "/api/threads" && method === "GET") {
-    const [households, bookings, messages] = await Promise.all([readCol("households", T), readCol("bookings", T), readCol("messages", T)]);
+    const [households, bookings, messages, users] = await Promise.all([readCol("households", T), readCol("bookings", T), readCol("messages", T), readCol("users", T)]);
+    const isOffice = m.role === "agency_admin" || m.role === "agency_coord" || m.role === "manager";
     let hids: string[];
     if (m.role === "family") hids = households.filter((h) => h.primaryUserId === m.uid).map((h) => h.householdId);
     else if (m.role === "caregiver") hids = Array.from(new Set(bookings.filter((b) => b.caregiverId === m.uid).map((b) => b.householdId)));
     else hids = households.map((h) => h.householdId);
     const last: Row = {};
     for (const msg of messages) { const c = last[msg.householdId]; if (!c || msg.createdAt > c.createdAt) last[msg.householdId] = msg; }
-    const threads = hids.map((hid) => ({ householdId: hid, name: byId(households, "householdId", hid)?.name || "Client", lastText: last[hid]?.text || "", lastAt: last[hid]?.createdAt || "" })).sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
-    return { threads };
+    const threads = hids.map((hid) => ({ householdId: hid, type: "client", name: byId(households, "householdId", hid)?.name || "Client", lastText: last[hid]?.text || "", lastAt: last[hid]?.createdAt || "" }));
+    // Support / team channel: staff <-> the office. Key = "support:<caregiverUid>".
+    const support: Row[] = [];
+    if (m.role === "caregiver") {
+      const key = `support:${m.uid}`;
+      support.push({ householdId: key, type: "support", name: "Support (you & the office)", lastText: last[key]?.text || "", lastAt: last[key]?.createdAt || "" });
+    } else if (isOffice) {
+      const keys = Array.from(new Set(messages.filter((x) => String(x.householdId).startsWith("support:")).map((x) => x.householdId)));
+      for (const key of keys) { const uid = String(key).slice(8); support.push({ householdId: key, type: "support", name: `${byId(users, "userId", uid)?.name || "Caregiver"} (support)`, lastText: last[key]?.text || "", lastAt: last[key]?.createdAt || "" }); }
+    }
+    const all = [...threads, ...support].sort((a, b) => ((a.lastAt as string) < (b.lastAt as string) ? 1 : -1));
+    return { threads: all };
   }
   if (p === "/api/messages" && method === "GET") {
     const hid = qs.get("householdId") || "";

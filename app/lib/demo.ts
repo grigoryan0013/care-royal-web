@@ -413,7 +413,11 @@ export async function demoHandle(method: string, path: string, body: Record<stri
     else hids = db.Households.map((h) => h.householdId);
     const last: Record<string, Row> = {};
     for (const msg of db.Messages) { const c = last[msg.householdId]; if (!c || msg.createdAt > c.createdAt) last[msg.householdId] = msg; }
-    const threads = hids.map((hid) => ({ householdId: hid, name: hhById(hid)?.name || "Client", lastText: last[hid]?.text || "", lastAt: last[hid]?.createdAt || "" })).sort((a, b) => ((a as any).lastAt < (b as any).lastAt ? 1 : -1));
+    const isOffice = me.role === "agency_admin" || me.role === "agency_coord" || me.role === "manager";
+    const threads: Row[] = hids.map((hid) => ({ householdId: hid, type: "client", name: hhById(hid)?.name || "Client", lastText: last[hid]?.text || "", lastAt: last[hid]?.createdAt || "" }));
+    if (me.role === "caregiver") { const key = `support:${me.userId}`; threads.push({ householdId: key, type: "support", name: "Support (you & the office)", lastText: last[key]?.text || "", lastAt: last[key]?.createdAt || "" }); }
+    else if (isOffice) { const keys = Array.from(new Set(db.Messages.filter((x) => String(x.householdId).startsWith("support:")).map((x) => x.householdId))); for (const key of keys) { const uid = String(key).slice(8); threads.push({ householdId: key, type: "support", name: `${usrById(uid)?.name || "Caregiver"} (support)`, lastText: last[key]?.text || "", lastAt: last[key]?.createdAt || "" }); } }
+    threads.sort((a, b) => ((a as any).lastAt < (b as any).lastAt ? 1 : -1));
     return { threads };
   }
   if (p === "/api/messages" && method === "GET") {
