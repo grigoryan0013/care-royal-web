@@ -495,8 +495,22 @@ export async function fbHandle(method: string, path: string, body: Row = {}): Pr
     if (method === "GET") {
       let list = invoices;
       if (m.role === "family") { const ids = households.filter((h) => h.primaryUserId === m.uid).map((h) => h.householdId); list = list.filter((i) => ids.includes(i.householdId)); }
-      const enriched = list.map((inv) => { const b = byId(bookings, "bookingId", inv.bookingId) || {}; return { ...inv, serviceName: byId(services, "serviceId", b.serviceId)?.name || "", recipientName: byId(recipients, "recipientId", b.recipientId)?.name || "", householdName: byId(households, "householdId", inv.householdId)?.name || "" } as Row; }).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1));
+      const enriched = list.map((inv) => { const b = byId(bookings, "bookingId", inv.bookingId) || {}; return { ...inv, serviceName: byId(services, "serviceId", b.serviceId)?.name || "", recipientName: byId(recipients, "recipientId", b.recipientId || inv.recipientId)?.name || "", householdName: byId(households, "householdId", inv.householdId)?.name || "" } as Row; }).sort((a, b) => ((a as Row).createdAt < (b as Row).createdAt ? 1 : -1));
       return { invoices: enriched };
+    }
+    // Manual invoice from a template (line items). Agency-created.
+    if (body.action === "create") {
+      const items = Array.isArray(body.lineItems) ? (body.lineItems as Row[]) : [];
+      const total = items.reduce((s, it) => s + (parseFloat(String(it.amount)) || 0), 0) || (parseFloat(String(body.amount)) || 0);
+      const number = String(body.number || ("INV-" + String(invoices.length + 1).padStart(4, "0")));
+      await create("invoices", "invoiceId", { tenantId: T, householdId: String(body.householdId || ""), recipientId: String(body.recipientId || ""), bookingId: "", amount: (Math.round(total * 100) / 100).toFixed(2), status: "unpaid", stripeId: "", lineItems: items, notes: String(body.notes || ""), dueDate: String(body.dueDate || ""), template: String(body.template || "clean"), number, createdAt: now() });
+      return { ok: true, number };
+    }
+    if (body.action === "update") {
+      const patch: Row = {};
+      if (Array.isArray(body.lineItems)) { patch.lineItems = body.lineItems; patch.amount = ((body.lineItems as Row[]).reduce((s, it) => s + (parseFloat(String(it.amount)) || 0), 0)).toFixed(2); }
+      for (const k of ["notes", "dueDate", "template", "householdId", "recipientId", "number"]) if (k in body) patch[k] = String(body[k]);
+      await update("invoices", body.invoiceId, patch); return ok();
     }
     if (body.action === "generate") {
       const shifts = await readCol("shifts", T);

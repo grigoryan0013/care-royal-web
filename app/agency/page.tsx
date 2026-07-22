@@ -22,6 +22,7 @@ const nav: NavItem[] = [
   { key: "services", label: "Services", icon: "services" },
   { key: "messages", label: "Messages", icon: "messages" },
   { key: "money", label: "Invoices", icon: "money" },
+  { key: "payroll", label: "Payroll", icon: "pay" },
   { key: "documents", label: "Documents", icon: "documents" },
   { key: "leads", label: "Leads", icon: "leads" },
   { key: "recruiting", label: "Recruiting", icon: "staff" },
@@ -36,11 +37,12 @@ const SECTION_INTRO: Record<string, string> = {
   staff: "Your caregivers. Share your agency code so they can join and see their shifts.",
   services: "Your service menu and rates. Families can only book what you switch on here.",
   messages: "One shared thread per client between your office, the family and the caregiver.",
-  money: "Connect payments, generate invoices from completed shifts, and run payroll from the same timesheets.",
+  money: "Create branded invoices from a template, bill from completed shifts, and take payment online.",
+  payroll: "Pay your team from the same timesheets — in-app paystubs with real tax math, or connect Gusto & QuickBooks.",
   documents: "Send care plans, agreements and consents for in-app signature with a full audit trail.",
   leads: "Your inquiry pipeline. Import a CSV and move each lead from new to client.",
   recruiting: "Caregiver applications from your public hiring page. Accept to add them to your roster.",
-  growth: "White-label your portals and run multiple locations under one organization.",
+  growth: "Your public pages, branding and multi-location — everything to grow your agency.",
   reports: "How your agency is trending — bookings, revenue, utilization, margin and lead conversion.",
 };
 
@@ -193,7 +195,8 @@ export default function AgencyPortal() {
       {view === "messages" && can("messages") && <MessagesPanel />}
       {view === "documents" && can("documents") && <AgencyDocs clients={clients} tenant={tenant} caregivers={caregivers} onChange={() => flash("Document sent.")} />}
       {view === "leads" && can("leads") && <Leads />}
-      {view === "money" && can("money") && <Money onGo={setActive} plan={tenant?.plan} />}
+      {view === "money" && can("money") && <Money plan={tenant?.plan} clients={clients} services={services} tenant={tenant} onChange={load} />}
+      {isOwner && view === "payroll" && <Payroll onGo={setActive} />}
       {/* Owner-only sections */}
       {isOwner && view === "team" && <Team flash={flash} />}
       {isOwner && view === "services" && <Services services={services} onChange={() => { load(); flash("Catalog updated."); }} />}
@@ -1180,29 +1183,231 @@ function ServiceRow({ s, onChange }: { s: Service; onChange: () => void }) {
   );
 }
 
-// ---------------------------------------------------------------- money
-interface Invoice { invoiceId: string; amount: string; status: string; serviceName: string; recipientName: string; householdName: string; createdAt: string }
+// ---------------------------------------------------------------- invoices
+interface LineItem { desc: string; qty: string; rate: string; amount: string }
+interface Invoice { invoiceId: string; amount: string; status: string; serviceName: string; recipientName: string; householdName: string; createdAt: string; number?: string; lineItems?: LineItem[]; notes?: string; dueDate?: string; template?: string; householdId?: string; recipientId?: string }
 interface PayRow { userId: string; name: string; shifts: number; hours: number; gross: number }
 
-function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
+const INVOICE_TEMPLATES = [
+  { key: "clean", label: "Clean" },
+  { key: "classic", label: "Classic" },
+  { key: "bold", label: "Bold" },
+  { key: "minimal", label: "Minimal" },
+];
+
+// Branded, printable invoice (Tegula-style) — opens a print window; no jsPDF dep.
+function printInvoice(inv: Invoice, agencyName: string, brandColor: string) {
+  const color = brandColor || "#4B39EF";
+  const t = inv.template || "clean";
+  const items = inv.lineItems && inv.lineItems.length ? inv.lineItems : [{ desc: inv.serviceName || "Care services", qty: "1", rate: inv.amount, amount: inv.amount }];
+  const rows = items.map((it) => `<tr><td>${it.desc || ""}</td><td style="text-align:center">${it.qty || ""}</td><td style="text-align:right">$${it.rate || ""}</td><td style="text-align:right">$${it.amount || ""}</td></tr>`).join("");
+  const header = t === "bold"
+    ? `<div style="background:${color};color:#fff;padding:24px 28px;border-radius:12px"><div style="font-size:26px;font-weight:800">${agencyName}</div><div style="opacity:.85">Invoice ${inv.number || ""}</div></div>`
+    : t === "minimal"
+      ? `<div style="padding-bottom:8px"><div style="font-size:24px;font-weight:800">${agencyName}</div><div style="color:#666">Invoice ${inv.number || ""}</div></div>`
+      : `<div style="border-left:6px solid ${color};padding:4px 0 4px 16px"><div style="font-size:24px;font-weight:800;color:${color}">${agencyName}</div><div style="color:#666">Invoice ${inv.number || ""}</div></div>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${inv.number || ""}</title>
+  <style>body{font-family:Inter,Arial,sans-serif;color:#14181B;max-width:720px;margin:32px auto;padding:0 20px}
+  table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:10px;border-bottom:1px solid #E0E3E7;font-size:14px}
+  th{text-align:left;color:#57636C;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  .tot{display:flex;justify-content:flex-end;gap:40px;margin-top:16px;font-weight:800;font-size:18px}
+  .meta{display:flex;justify-content:space-between;margin-top:20px;color:#57636C;font-size:13px}</style></head>
+  <body>${header}
+  <div class="meta"><div><b style="color:#14181B">Bill to</b><br>${inv.householdName || ""}${inv.recipientName ? "<br>Care for " + inv.recipientName : ""}</div>
+  <div style="text-align:right"><b style="color:#14181B">Date</b> ${new Date(inv.createdAt || Date.now()).toLocaleDateString()}${inv.dueDate ? "<br><b style='color:#14181B'>Due</b> " + inv.dueDate : ""}</div></div>
+  <table><thead><tr><th>Description</th><th style="text-align:center">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
+  <div class="tot"><span>Total</span><span style="color:${color}">$${inv.amount}</span></div>
+  ${inv.notes ? `<p style="margin-top:20px;color:#57636C;font-size:13px;white-space:pre-line">${inv.notes}</p>` : ""}
+  <p style="margin-top:32px;color:#8b95a1;font-size:12px">Thank you for choosing ${agencyName}.</p>
+  <script>window.onload=function(){window.print()}</script></body></html>`;
+  const w = window.open("", "_blank"); if (w) { w.document.write(html); w.document.close(); }
+}
+
+function Money({ plan, clients, services, tenant, onChange }: { plan?: string; clients: Client[]; services: Service[]; tenant: Tenant | null; onChange: () => void }) {
   const [connect, setConnect] = useState<{ connected: boolean; chargesEnabled?: boolean } | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [busy, setBusy] = useState("");
+  const [note, setNote] = useState("");
+  const [builder, setBuilder] = useState<Invoice | null | "new">(null);
+
+  const load = useCallback(async () => {
+    const [c, inv] = await Promise.all([
+      apiPost("/api/connect", { action: "status" }).catch(() => ({ connected: false })),
+      apiGet("/api/invoices").catch(() => ({ invoices: [] })),
+    ]);
+    setConnect(c); setInvoices(inv.invoices || []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function onboard() {
+    setBusy("connect");
+    try { const d = await apiPost("/api/connect", { action: "onboard" }); if (d.url) window.location.href = d.url; else { setNote("Payments connected (demo)."); load(); } }
+    catch (e) { setNote(e instanceof Error ? e.message : "Failed"); } finally { setBusy(""); }
+  }
+  async function generate() {
+    setBusy("gen");
+    try { const d = await apiPost("/api/invoices", { action: "generate" }); setNote(`Generated ${d.created} invoice(s) from completed shifts.`); load(); }
+    finally { setBusy(""); }
+  }
+  async function invAction(invoiceId: string, action: string) { await apiPost("/api/invoices", { action, invoiceId }); load(); }
+  const agencyName = tenant?.name || "Your agency";
+  const empty = invoices.length === 0;
+
+  return (
+    <div className="space-y-6">
+      {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
+
+      {/* Plan */}
+      <div className="card flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="font-serif text-lg font-bold text-ink">Your The Care Royal plan</h3>
+          <p className="mt-1 text-sm text-ink-light">You keep 100% of client payments minus card fees.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {(() => { const link = PAYMENT_LINKS[plan || ""] || ""; const p = planByKey(plan || ""); return link ? <a href={link} target="_blank" rel="noopener noreferrer" className="btn-primary btn-sm">{p ? `Activate ${p.name} — $${p.price}/mo` : "Activate subscription"}</a> : null; })()}
+          <span className="badge-brand capitalize">{plan || "trial"}</span>
+        </div>
+      </div>
+
+      {/* Onboarding-first when there are no invoices yet */}
+      {empty ? (
+        <div className="card space-y-5">
+          <div><h3 className="font-serif text-lg font-bold text-ink">Get set up to bill</h3><p className="mt-1 text-sm text-ink-light">Two quick steps and you’re ready to invoice families.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-rule p-4">
+              <span className="icon-badge"><Icon name="pay" /></span>
+              <div className="mt-3 font-semibold text-ink">1. Connect payments <span className="text-xs font-normal text-ink-light">(optional)</span></div>
+              <p className="mt-1 text-sm text-ink-light">Let families pay online; funds go straight to you as merchant of record.</p>
+              {connect?.connected ? <p className="mt-3 text-sm text-ok">Connected{connect.chargesEnabled ? " — charges enabled." : "."}</p> : <button onClick={onboard} disabled={busy === "connect"} className="btn-ghost btn-sm mt-3">{busy === "connect" ? "…" : "Connect Stripe"}</button>}
+            </div>
+            <div className="rounded-xl border-2 border-brand p-4">
+              <span className="icon-badge"><Icon name="documents" /></span>
+              <div className="mt-3 font-semibold text-ink">2. Create your first invoice</div>
+              <p className="mt-1 text-sm text-ink-light">Start from a template and bill a client, or generate from completed shifts.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button onClick={() => setBuilder("new")} className="btn-gradient btn-sm"><Icon name="plus" size={16} /> New invoice</button>
+                <button onClick={generate} disabled={busy === "gen"} className="btn-ghost btn-sm">{busy === "gen" ? "…" : "From shifts"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {!connect?.connected && (
+            <div className="card flex flex-wrap items-center justify-between gap-3 border-gold/40 bg-gold/5">
+              <span className="text-sm text-ink-mid">Connect payments so families can pay these invoices online.</span>
+              <button onClick={onboard} disabled={busy === "connect"} className="btn-ghost btn-sm">{busy === "connect" ? "…" : "Connect Stripe"}</button>
+            </div>
+          )}
+          <div className="card">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-serif text-lg font-bold text-ink">Invoices</h3>
+              <div className="flex gap-2">
+                <button onClick={generate} disabled={busy === "gen"} className="btn-ghost btn-sm">{busy === "gen" ? "…" : "Generate from shifts"}</button>
+                <button onClick={() => setBuilder("new")} className="btn-gradient btn-sm"><Icon name="plus" size={16} /> New invoice</button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {invoices.map((inv) => (
+                <div key={inv.invoiceId} className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-2.5 text-sm last:border-0">
+                  <div>
+                    <div className="font-medium text-ink">{inv.number ? `${inv.number} · ` : ""}${inv.amount} <span className="font-normal text-ink-light">{inv.serviceName ? `— ${inv.serviceName} ` : ""}{inv.recipientName ? `for ${inv.recipientName} ` : ""}{inv.householdName ? `(${inv.householdName})` : ""}</span></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={inv.status === "paid" ? "badge-ok" : inv.status === "void" ? "badge-muted" : "badge-warn"}>{inv.status}</span>
+                    <button onClick={() => printInvoice(inv, agencyName, "")} className="text-xs font-semibold text-brand">Preview / print</button>
+                    {inv.lineItems && <button onClick={() => setBuilder(inv)} className="text-xs font-semibold text-ink-mid">Edit</button>}
+                    {inv.status === "unpaid" && (<>
+                      <button onClick={() => invAction(inv.invoiceId, "mark_paid")} className="text-xs font-semibold text-ok">Mark paid</button>
+                      <button onClick={() => invAction(inv.invoiceId, "void")} className="text-xs font-semibold text-ink-light">Void</button>
+                    </>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {builder !== null && <InvoiceBuilder inv={builder === "new" ? null : builder} clients={clients} services={services} agencyName={agencyName} onClose={() => setBuilder(null)} onSaved={() => { setBuilder(null); setNote("Invoice saved."); load(); onChange(); }} />}
+    </div>
+  );
+}
+
+// Tegula-style invoice builder: pick template, client, line items (from services or custom), notes.
+function InvoiceBuilder({ inv, clients, services, agencyName, onClose, onSaved }: {
+  inv: Invoice | null; clients: Client[]; services: Service[]; agencyName: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [template, setTemplate] = useState(inv?.template || "clean");
+  const [householdId, setHouseholdId] = useState(inv?.householdId || "");
+  const [recipientId, setRecipientId] = useState(inv?.recipientId || "");
+  const [items, setItems] = useState<LineItem[]>(inv?.lineItems?.length ? inv.lineItems : [{ desc: "", qty: "1", rate: "", amount: "" }]);
+  const [notes, setNotes] = useState(inv?.notes || "");
+  const [dueDate, setDueDate] = useState(inv?.dueDate || "");
+  const [busy, setBusy] = useState(false);
+  const household = clients.find((c) => c.householdId === householdId);
+  const lineAmt = (it: LineItem) => { const c = (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0); return c ? c.toFixed(2) : (it.amount || ""); };
+  const total = items.reduce((s, it) => s + (parseFloat(lineAmt(it)) || 0), 0);
+  const setItem = (i: number, k: keyof LineItem, v: string) => setItems((arr) => arr.map((it, j) => j === i ? { ...it, [k]: v } : it));
+  const addFromService = (id: string) => { const s = services.find((x) => x.serviceId === id); if (s) setItems((a) => [...a, { desc: s.name, qty: "1", rate: s.rate || "", amount: "" }]); };
+
+  async function save() {
+    setBusy(true);
+    const lineItems = items.filter((it) => it.desc.trim()).map((it) => ({ ...it, amount: lineAmt(it) }));
+    try {
+      if (inv) await apiPost("/api/invoices", { action: "update", invoiceId: inv.invoiceId, lineItems, notes, dueDate, template, householdId, recipientId });
+      else await apiPost("/api/invoices", { action: "create", lineItems, notes, dueDate, template, householdId, recipientId });
+      onSaved();
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Drawer open={true} onClose={onClose} title={inv ? "Edit invoice" : "New invoice"}>
+      <div className="space-y-4">
+        <div><label className="label">Template</label><div className="flex flex-wrap gap-2">{INVOICE_TEMPLATES.map((t) => <button type="button" key={t.key} onClick={() => setTemplate(t.key)} className={template === t.key ? "chip-on" : "chip-off"}>{t.label}</button>)}</div></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><label className="label">Bill to (client)</label><select className="field" value={householdId} onChange={(e) => { setHouseholdId(e.target.value); setRecipientId(""); }}><option value="">Select client…</option>{clients.map((c) => <option key={c.householdId} value={c.householdId}>{c.name}</option>)}</select></div>
+          <div><label className="label">Care recipient (optional)</label><select className="field" value={recipientId} onChange={(e) => setRecipientId(e.target.value)} disabled={!householdId}><option value="">—</option>{(household?.recipients || []).map((r) => <option key={r.recipientId} value={r.recipientId}>{r.name}</option>)}</select></div>
+        </div>
+        <div>
+          <div className="mb-1 flex items-center justify-between"><label className="label !mb-0">Line items</label>{services.length > 0 && <select className="field field-sm !w-auto" value="" onChange={(e) => { addFromService(e.target.value); e.currentTarget.value = ""; }}><option value="">+ Add from service…</option>{services.map((s) => <option key={s.serviceId} value={s.serviceId}>{s.name}</option>)}</select>}</div>
+          <div className="space-y-2">
+            {items.map((it, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input className="field field-sm flex-1" placeholder="Description" value={it.desc} onChange={(e) => setItem(i, "desc", e.target.value)} />
+                <input className="field field-sm !w-14" placeholder="Qty" value={it.qty} onChange={(e) => setItem(i, "qty", e.target.value)} />
+                <input className="field field-sm !w-20" placeholder="Rate" value={it.rate} onChange={(e) => setItem(i, "rate", e.target.value)} />
+                <span className="w-16 text-right text-sm text-ink-mid">${lineAmt(it) || "0"}</span>
+                {items.length > 1 && <button onClick={() => setItems((a) => a.filter((_, j) => j !== i))} className="text-ink-light hover:text-danger"><Icon name="close" size={16} /></button>}
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setItems((a) => [...a, { desc: "", qty: "1", rate: "", amount: "" }])} className="mt-2 text-xs font-semibold text-brand"><Icon name="plus" size={14} /> Add line</button>
+        </div>
+        <div className="flex items-center justify-between border-t border-rule pt-3 text-sm font-bold text-ink"><span>Total</span><span>${total.toFixed(2)}</span></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><label className="label">Due date (optional)</label><input type="date" className="field" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+        </div>
+        <div><label className="label">Notes (optional)</label><textarea className="field" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Payment terms, thank-you note…" /></div>
+      </div>
+      <div className="mt-6 flex gap-2">
+        <button onClick={save} disabled={busy || !householdId} className="btn-gradient flex-1">{busy ? "Saving…" : inv ? "Save invoice" : "Create invoice"}</button>
+        <button onClick={() => printInvoice({ ...(inv || {} as Invoice), template, householdId, recipientId, notes, dueDate, amount: total.toFixed(2), lineItems: items, householdName: household?.name || "", number: inv?.number || "Draft", createdAt: inv?.createdAt || new Date().toISOString() } as Invoice, agencyName, "")} className="btn-ghost">Preview</button>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------------------------------------------------------------- payroll
+function Payroll({ onGo }: { onGo: (k: string) => void }) {
   const [pay, setPay] = useState<{ rows: PayRow[]; total: number; backboneReady: boolean; provider?: string }>({ rows: [], total: 0, backboneReady: false });
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
-
   const load = useCallback(async () => {
-    const [c, inv, pr] = await Promise.all([
-      apiPost("/api/connect", { action: "status" }).catch(() => ({ connected: false })),
-      apiGet("/api/invoices").catch(() => ({ invoices: [] })),
-      apiGet("/api/payroll").catch(() => ({ rows: [], total: 0, backboneReady: false })),
-    ]);
-    setConnect(c); setInvoices(inv.invoices || []);
+    const pr = await apiGet("/api/payroll").catch(() => ({ rows: [], total: 0, backboneReady: false }));
     setPay({ rows: pr.rows || [], total: pr.total || 0, backboneReady: !!pr.backboneReady, provider: pr.provider || "" });
   }, []);
   useEffect(() => { load(); }, [load]);
-  // Returning from Gusto OAuth? It sends ?code&state=gusto:… (no realmId — that's
-  // QuickBooks). Complete the exchange, then clean the URL.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
@@ -1215,110 +1420,33 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
         .finally(() => { window.history.replaceState({}, "", window.location.pathname); setBusy(""); load(); });
     }
   }, [load]);
-
   async function connectPayroll(provider: string) {
     setBusy("payroll");
     try { const d = await apiPost("/api/payroll", { action: "connect_payroll", provider }); if (d.url) window.location.href = d.url; else { setNote(provider === "gusto" ? "Payroll connected via Gusto." : "The Care Royal Payroll enabled."); load(); } }
     catch (e) { setNote(e instanceof Error ? e.message : "Failed"); } finally { setBusy(""); }
   }
-
-  async function onboard() {
-    setBusy("connect");
-    try { const d = await apiPost("/api/connect", { action: "onboard" }); if (d.url) window.location.href = d.url; else { setNote("Payments connected (demo)."); load(); } }
-    catch (e) { setNote(e instanceof Error ? e.message : "Failed"); } finally { setBusy(""); }
-  }
-  async function generate() {
-    setBusy("gen");
-    try { const d = await apiPost("/api/invoices", { action: "generate" }); setNote(`Generated ${d.created} invoice(s).`); load(); }
-    finally { setBusy(""); }
-  }
-  async function invAction(invoiceId: string, action: string) {
-    await apiPost("/api/invoices", { action, invoiceId }); load();
-  }
-  async function runPayroll() {
-    setBusy("run");
-    try { const d = await apiPost("/api/payroll", { action: "run" }); setNote(d.note || (d.ok ? "Payroll run." : "")); }
-    finally { setBusy(""); }
-  }
+  async function runPayroll() { setBusy("run"); try { const d = await apiPost("/api/payroll", { action: "run" }); setNote(d.note || (d.ok ? "Payroll run." : "")); } finally { setBusy(""); } }
 
   return (
     <div className="space-y-6">
       {note && <p className="rounded-lg bg-brand-light px-3 py-2 text-sm text-brand">{note}</p>}
-
-      <div className="card flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="font-serif text-lg text-ink">Your The Care Royal plan</h3>
-          <p className="mt-1 text-sm text-ink-light">Billing for your Care Royal subscription is handled by The Care Royal. You keep 100% of client payments minus card fees.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {(() => {
-            const link = PAYMENT_LINKS[plan || ""] || "";
-            const p = planByKey(plan || "");
-            return link ? (
-              <a href={link} target="_blank" rel="noopener noreferrer" className="btn-primary btn-sm">
-                {p ? `Activate ${p.name} — $${p.price}/mo` : "Activate subscription"}
-              </a>
-            ) : null;
-          })()}
-          <span className="badge-brand capitalize">{plan || "trial"}</span>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3 className="mb-2 font-serif text-lg text-ink">Payments</h3>
-        {!connect?.connected ? (
-          <>
-            <p className="mb-3 text-sm text-ink-mid">Connect Stripe so families can pay in-app and you receive funds directly. You are the merchant of record.</p>
-            <button onClick={onboard} disabled={busy === "connect"} className="btn-primary">{busy === "connect" ? "…" : "Connect payments"}</button>
-          </>
-        ) : (
-          <p className="text-sm text-ok">Stripe connected{connect.chargesEnabled ? " — charges enabled." : " — finish onboarding to enable charges."}</p>
-        )}
-      </div>
-
       <div className="card">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-serif text-lg text-ink">Invoices</h3>
-          <button onClick={generate} disabled={busy === "gen"} className="btn-ghost btn-sm">{busy === "gen" ? "…" : "Generate from completed shifts"}</button>
-        </div>
-        {invoices.length === 0 && <p className="text-sm text-ink-light">No invoices yet.</p>}
-        <div className="space-y-2">
-          {invoices.map((inv) => (
-            <div key={inv.invoiceId} className="flex items-center justify-between border-b border-rule pb-2 text-sm last:border-0">
-              <div>
-                <div className="text-ink">${inv.amount} <span className="text-ink-light">— {inv.serviceName} for {inv.recipientName} ({inv.householdName})</span></div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={inv.status === "paid" ? "badge-ok" : inv.status === "void" ? "badge-muted" : "badge-warn"}>{inv.status}</span>
-                {inv.status === "unpaid" && (
-                  <>
-                    <button onClick={() => invAction(inv.invoiceId, "mark_paid")} className="text-xs font-semibold text-ok">Mark paid</button>
-                    <button onClick={() => invAction(inv.invoiceId, "void")} className="text-xs font-semibold text-ink-light">Void</button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-serif text-lg text-ink">Payroll</h3>
+          <h3 className="font-serif text-lg font-bold text-ink">Payroll</h3>
           {pay.backboneReady && <button onClick={runPayroll} disabled={busy === "run"} className="btn-primary btn-sm">{busy === "run" ? "…" : "Run payroll"}</button>}
         </div>
         {!pay.backboneReady ? (
           <div className="mb-4 space-y-3">
-            <p className="text-sm text-ink-mid">Choose how you run payroll. Either way The Care Royal never holds your funds — gross pay below comes from your timesheets.</p>
+            <p className="text-sm text-ink-mid">Choose how you run payroll. The Care Royal never holds your funds — gross pay below comes from your timesheets.</p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-rule bg-paper p-4">
-                <div className="font-medium text-ink">The Care Royal Payroll</div>
-                <p className="mt-1 text-xs text-ink-light">Generate branded paystubs, verification letters, invoices & receipts in-app — with real tax math. No external account.</p>
-                <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-primary btn-sm mt-3">Use The Care Royal Payroll</button>
+              <div className="rounded-xl border border-rule bg-paper p-4">
+                <div className="font-semibold text-ink">The Care Royal Payroll</div>
+                <p className="mt-1 text-xs text-ink-light">Branded paystubs, verification letters and receipts in-app — with real tax math. No external account.</p>
+                <button onClick={() => connectPayroll("careroyal")} disabled={busy === "payroll"} className="btn-gradient btn-sm mt-3">Use in-app payroll</button>
               </div>
-              <div className="rounded-lg border border-rule bg-paper p-4">
-                <div className="font-medium text-ink">Connect Gusto</div>
-                <p className="mt-1 text-xs text-ink-light">Bring your own Gusto account for full-service payroll, direct deposit and tax filing under your agency.</p>
+              <div className="rounded-xl border border-rule bg-paper p-4">
+                <div className="font-semibold text-ink">Connect Gusto</div>
+                <p className="mt-1 text-xs text-ink-light">Bring your own Gusto for full-service payroll, direct deposit and tax filing under your agency.</p>
                 <button onClick={() => connectPayroll("gusto")} disabled={busy === "payroll"} className="btn-ghost btn-sm mt-3">Connect Gusto</button>
               </div>
             </div>
@@ -1327,7 +1455,7 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
           <p className="mb-3 text-sm text-ok">Payroll connected via Gusto. Gross pay below syncs to your account.</p>
         ) : (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-ok/10 px-3 py-2">
-            <span className="text-sm text-ok">The Care Royal Payroll is on. Create paystubs & pay documents in the Document Studio.</span>
+            <span className="text-sm text-ok">In-app payroll is on. Create paystubs & pay documents in the Document Studio.</span>
             <button onClick={() => onGo("documents")} className="btn-soft btn-sm">Open Document Studio</button>
           </div>
         )}
@@ -1340,13 +1468,8 @@ function Money({ onGo, plan }: { onGo: (k: string) => void; plan?: string }) {
             </div>
           ))}
         </div>
-        {pay.rows.length > 0 && (
-          <div className="mt-3 flex items-center justify-between border-t border-rule-dark pt-3 text-sm font-semibold text-ink">
-            <span>Total gross</span><span>${pay.total.toFixed(2)}</span>
-          </div>
-        )}
+        {pay.rows.length > 0 && <div className="mt-3 flex items-center justify-between border-t border-rule-dark pt-3 text-sm font-semibold text-ink"><span>Total gross</span><span>${pay.total.toFixed(2)}</span></div>}
       </div>
-
       <QuickBooksCard />
     </div>
   );
