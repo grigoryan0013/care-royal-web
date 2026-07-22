@@ -317,6 +317,76 @@ function ShareCode({ joinCode }: { joinCode?: string }) {
 }
 
 // ---------------------------------------------------------------- dashboard
+// Self-explanatory onboarding for a new agency. Two groups: the core steps to
+// go live, and the tools they self-connect (payments/payroll/QuickBooks/brand).
+// Every item tracks REAL portal state, explains what it does and that the agency
+// owns the connected account, and deep-links to where it's done. Collapses to a
+// compact "set up" summary once the core is complete, but tools stay reachable.
+function GettingStarted({ services, caregivers, clients, onGo }: {
+  services: Service[]; caregivers: Caregiver[]; clients: Client[]; onGo: (k: string) => void;
+}) {
+  const [conn, setConn] = useState<{ stripe: boolean; payroll: boolean; quickbooks: boolean; brand: boolean } | null>(null);
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    (async () => {
+      const [c, pr, qb, br] = await Promise.all([
+        apiPost("/api/connect", { action: "status" }).catch(() => ({ connected: false })),
+        apiGet("/api/payroll").catch(() => ({ backboneReady: false })),
+        apiPost("/api/quickbooks", { action: "status" }).catch(() => ({ connected: false })),
+        apiGet("/api/branding").catch(() => ({ branding: {} })),
+      ]);
+      const b = br.branding || {};
+      setConn({ stripe: !!c.connected, payroll: !!pr.backboneReady, quickbooks: !!qb.connected, brand: !!(b.displayName || b.logoUrl) });
+    })();
+  }, []);
+
+  const core = [
+    { done: services.some((s) => s.rate), label: "Set your service rates", hint: "Price the services you offer. Families can only book and be billed for services you switch on and price.", go: "services" },
+    { done: !!conn?.stripe, label: "Connect payments", hint: "Link your own Stripe account so families pay in-app and money lands in your bank. You are the merchant of record — Care Royal never holds your funds.", go: "money" },
+    { done: caregivers.length > 0, label: "Invite your caregivers", hint: "Share your agency join code (below) so caregivers sign up and see their shifts.", go: "staff" },
+    { done: clients.length > 0, label: "Add your first client", hint: "Create a family household, or bulk-import your existing clients and leads from a spreadsheet.", go: "clients" },
+  ];
+  const tools = [
+    { done: !!conn?.payroll, label: "Set up payroll", hint: "Run payroll in-app with real tax math, or connect your own Gusto for direct deposit and tax filing under your agency.", go: "money" },
+    { done: !!conn?.quickbooks, label: "Connect QuickBooks", hint: "Push your invoices to your own QuickBooks company for accounting. Your books stay yours.", go: "money" },
+    { done: !!conn?.brand, label: "Make it your own", hint: "Add your logo and colors so every portal your families and staff see is branded as your agency.", go: "growth" },
+  ];
+  const coreLeft = core.filter((s) => !s.done).length;
+  const allDone = coreLeft === 0 && tools.every((t) => t.done);
+
+  const Row = ({ s }: { s: { done: boolean; label: string; hint: string; go: string } }) => (
+    <button onClick={() => onGo(s.go)} className="flex w-full items-center gap-3 rounded-lg border border-rule px-3 py-2.5 text-left transition hover:border-brand/40">
+      <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${s.done ? "bg-ok text-white" : "border-2 border-rule-dark text-transparent"}`}><Icon name="check" size={14} /></span>
+      <span className="flex-1">
+        <span className={`block text-sm font-medium ${s.done ? "text-ink-light line-through" : "text-ink"}`}>{s.label}</span>
+        {!s.done && <span className="block text-xs text-ink-light">{s.hint}</span>}
+      </span>
+      {!s.done && <Icon name="chevron" size={16} className="text-ink-light" />}
+    </button>
+  );
+
+  if (conn === null) return null; // wait for connection state so steps don't flicker
+  if (allDone) return null;       // fully set up — nothing to nudge
+
+  return (
+    <div className="card">
+      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between">
+        <h3 className="font-serif text-lg text-ink">{coreLeft > 0 ? "Getting started" : "Finish setting up"}</h3>
+        <span className="flex items-center gap-2"><span className="badge-brand">{core.length - coreLeft}/{core.length} done</span><Icon name="chevron" size={16} className={`text-ink-light transition ${open ? "rotate-90" : ""}`} /></span>
+      </button>
+      {open && (
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">{core.map((s) => <Row key={s.label} s={s} />)}</div>
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-light">Connect your tools — do these anytime</p>
+            <div className="space-y-2">{tools.map((s) => <Row key={s.label} s={s} />)}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ tenant, services, bookings, shifts, invoices, clients, caregivers, leadCount, onGo }: {
   tenant: Tenant | null; services: Service[]; bookings: Booking[]; shifts: Shift[];
   invoices: { amount: string; status: string; createdAt: string }[];
@@ -330,14 +400,6 @@ function Dashboard({ tenant, services, bookings, shifts, invoices, clients, care
   const todays = shifts.filter((s) => sameDay(s.start)).sort((a, b) => a.start.localeCompare(b.start));
   const revenue = invoices.filter((i) => i.status === "paid" && new Date(i.createdAt) >= weekAgo).reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
   const outstanding = invoices.filter((i) => i.status === "unpaid").reduce((t, i) => t + (parseFloat(i.amount) || 0), 0);
-
-  const steps = [
-    { done: services.some((s) => s.rate), label: "Set your service rates", hint: "Turn on the services you offer and price them.", go: "services" },
-    { done: caregivers.length > 0, label: "Invite your caregivers", hint: "Share your agency code so staff can join.", go: "staff" },
-    { done: clients.length > 0, label: "Add your first client", hint: "A family household with the people they care for.", go: "clients" },
-    { done: bookings.some((b) => b.status !== "requested" && b.status !== "declined"), label: "Schedule a booking", hint: "Approve a request and assign a caregiver.", go: "schedule" },
-  ];
-  const remaining = steps.filter((s) => !s.done);
 
   const Stat = ({ label, val, go, tone = "brand" }: { label: string; val: string; go: string; tone?: string }) => (
     <button onClick={() => onGo(go)} className="card card-hover text-left">
@@ -355,27 +417,7 @@ function Dashboard({ tenant, services, bookings, shifts, invoices, clients, care
         <p className="mt-2 max-w-xl text-sm text-white/80">Approve bookings, keep your calendar full, sign care documents, and pay your team — all in one place.</p>
       </div>
 
-      {/* Getting started */}
-      {remaining.length > 0 && (
-        <div className="card">
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-serif text-lg text-ink">Getting started</h3>
-            <span className="badge-brand">{steps.length - remaining.length}/{steps.length} done</span>
-          </div>
-          <div className="space-y-2">
-            {steps.map((s) => (
-              <button key={s.label} onClick={() => onGo(s.go)} className="flex w-full items-center gap-3 rounded-lg border border-rule px-3 py-2.5 text-left transition hover:border-brand/40">
-                <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${s.done ? "bg-ok text-white" : "border-2 border-rule-dark text-transparent"}`}><Icon name="check" size={14} /></span>
-                <span className="flex-1">
-                  <span className={`block text-sm font-medium ${s.done ? "text-ink-light line-through" : "text-ink"}`}>{s.label}</span>
-                  {!s.done && <span className="block text-xs text-ink-light">{s.hint}</span>}
-                </span>
-                {!s.done && <Icon name="chevron" size={16} className="text-ink-light" />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <GettingStarted services={services} caregivers={caregivers} clients={clients} onGo={onGo} />
 
       <ShareCode joinCode={tenant?.joinCode} />
 
