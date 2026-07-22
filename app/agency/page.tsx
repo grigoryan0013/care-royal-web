@@ -760,6 +760,7 @@ function Clients({ clients, caregivers, joinCode, onChange }: { clients: Client[
         label="Import clients"
         hint="Columns: name, recipient, phone, email, address, city, zip, conditions, notes. Each row becomes a client household with one care recipient."
         fields={{ name: ["client", "household", "name"], recipient: ["recipient", "care for", "patient", "loved one"], phone: ["phone", "tel", "mobile"], email: ["email"], address: ["address", "street"], city: ["city", "town"], zip: ["zip", "postal"], conditions: ["condition", "diagnos", "care need"], notes: ["note"] }}
+        template={["name", "recipient", "phone", "email", "address", "city", "zip", "conditions", "notes"]}
         onImport={async (rows) => { const r = await apiPost("/api/agency", { action: "import_clients", rows }); onChange(); return r.imported ?? rows.length; }}
       />
       {clients.length === 0 && <div className="card"><p className="text-sm text-ink-light">No client households yet. Families join with your agency code, or you can add them after a consultation.</p></div>}
@@ -807,6 +808,7 @@ function Staff({ caregivers, joinCode, onChange }: { caregivers: Caregiver[]; jo
         label="Import staff"
         hint="Columns: name, email, phone, credentials, rate, credential expiry. Imported staff appear on your roster; they get portal access once they sign up with your agency code."
         fields={{ name: ["name"], email: ["email"], phone: ["phone", "tel", "mobile"], credentials: ["credential", "license", "cert"], rate: ["rate", "pay", "wage"], credentialExpiry: ["expiry", "expire", "expiration"] }}
+        template={["name", "email", "phone", "credentials", "rate", "credential expiry"]}
         onImport={async (rows) => { const r = await apiPost("/api/agency", { action: "import_staff", rows }); onChange(); return r.imported ?? rows.length; }}
       />
       {expiring.length > 0 && <div className="card border-gold/40 bg-gold/5 text-sm text-gold-dark">{expiring.length} caregiver credential{expiring.length === 1 ? "" : "s"} expired or expiring soon — update below.</div>}
@@ -1274,13 +1276,21 @@ function parseCsv(text: string): string[][] {
 
 // Reusable CSV importer. `fields` maps an output key -> header-name aliases;
 // columns are matched case-insensitively by substring, order-independent.
-function CsvImport({ label, hint, fields, onImport }: {
+function CsvImport({ label, hint, fields, template, onImport }: {
   label: string; hint: string;
   fields: Record<string, string[]>;
+  template?: string[];
   onImport: (rows: Record<string, string>[]) => Promise<number>;
 }) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  // Give agencies a ready-to-fill spreadsheet so they never have to guess columns.
+  function downloadTemplate() {
+    const cols = template || Object.keys(fields);
+    const csv = cols.join(",") + "\n";
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a"); a.href = url; a.download = `${label.toLowerCase().replace(/[^a-z]+/g, "-")}-template.csv`; a.click(); URL.revokeObjectURL(url);
+  }
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1313,10 +1323,13 @@ function CsvImport({ label, hint, fields, onImport }: {
           <h3 className="font-serif text-lg text-ink">{label}</h3>
           <p className="mt-1 text-sm text-ink-light">{hint}</p>
         </div>
-        <label className={`btn-primary btn-sm shrink-0 cursor-pointer ${busy ? "pointer-events-none opacity-60" : ""}`}>
-          {busy ? "Importing…" : "Upload CSV"}
-          <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} disabled={busy} />
-        </label>
+        <div className="flex shrink-0 items-center gap-2">
+          <button onClick={downloadTemplate} className="btn-ghost btn-sm">Download template</button>
+          <label className={`btn-primary btn-sm cursor-pointer ${busy ? "pointer-events-none opacity-60" : ""}`}>
+            {busy ? "Importing…" : "Upload CSV"}
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} disabled={busy} />
+          </label>
+        </div>
       </div>
       {status && <p className="mt-3 text-sm text-brand">{status}</p>}
     </div>
